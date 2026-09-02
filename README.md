@@ -2,6 +2,15 @@
   <img src="./assets/banner.png" alt="agent-file-lock — immutable by agent" width="720">
 </p>
 
+<p align="center">
+  <b>English</b> ·
+  <a href="README.ko.md">한국어</a> ·
+  <a href="README.zh.md">中文</a> ·
+  <a href="README.ja.md">日本語</a> ·
+  <a href="README.de.md">Deutsch</a> ·
+  <a href="README.fr.md">Français</a>
+</p>
+
 # agent-file-lock (`afl`)
 
 ## Why this exists
@@ -291,7 +300,7 @@ afl run    -f afl.yaml -- <cmd...>    unlock, run <cmd>, then always re-lock
 afl hook                              PreToolUse guard for agents (stdin JSON, exit 2 = refused)
 afl hook install claude|codex|--all   register the hook (asks: --project or --user)
 afl hook check <path>...              the same verdict from any script (no root)
-afl hook print [claude|codex|generic] the snippet, or the contract for anything else
+afl hook print claude|codex           the config snippet for that agent
 afl doctor [<path>]                   OS, privileges, filesystem support, WSL detection
 afl completion bash|zsh|fish
 ```
@@ -407,7 +416,6 @@ afl hook install claude         # asks: this project, or your user?
 afl hook install claude --project
 afl hook install claude --user  # = --global; ~/.claude/settings.json
 afl hook install --all          # claude + codex, one question for both
-afl hook print generic          # the contract for anything else
 afl hook uninstall --all
 ```
 
@@ -418,10 +426,9 @@ kernel refuses the write either way. What the hook adds is the reason.
 unchanged, so one binary serves both. `afl hook install claude` writes
 `.claude/settings.json`, `afl hook install codex` writes `.codex/hooks.json`,
 both merging into whatever is already there and both removable with
-`hook uninstall`. Those two names are the whole list `install` takes; `generic`
-is not one of them, because there is no file to write. It is a name
-`afl hook print` accepts to show the contract below, which is what any other
-harness that can run a command before a tool call needs:
+`hook uninstall`. Those two names are the whole list `hook install` and
+`hook print` take. Any other harness that can run a command before a tool call
+is wired up by hand against this contract:
 
 | | |
 |---|---|

@@ -11,7 +11,6 @@ import (
 
 	"github.com/Mineru98/agent-file-lock/internal/hook"
 	"github.com/Mineru98/agent-file-lock/internal/lock"
-	"github.com/Mineru98/agent-file-lock/internal/notice"
 )
 
 func (e *env) cmdHook(args []string) int {
@@ -272,19 +271,13 @@ func configPath(h hook.Harness, global bool) (string, error) {
 }
 
 func (e *env) cmdHookPrint(args []string) int {
-	name := "generic"
-	if len(args) > 0 {
-		name = args[0]
+	if len(args) == 0 {
+		return e.usageErr("hook print needs a harness (known: %s)", strings.Join(hook.HarnessNames(), ", "))
 	}
-	if strings.EqualFold(name, "generic") {
-		fmt.Fprint(e.stdout, hook.GenericContract)
-		fmt.Fprintf(e.stdout, "\nThe message the agent receives:\n\n%s\n",
-			indent(notice.Block([]notice.Reason{{Path: "docs/SSOT.md", Level: "strong", Op: notice.OpModify}}), "    "))
-		return lock.ExitOK
-	}
+	name := args[0]
 	h, ok := hook.FindHarness(name)
 	if !ok {
-		return e.usageErr("unknown harness %q (known: %s)", name, strings.Join(hook.PrintNames(), ", "))
+		return e.usageErr("unknown harness %q (known: %s)", name, strings.Join(hook.HarnessNames(), ", "))
 	}
 	fmt.Fprintf(e.stdout, "# %s — %s (project) or ~/%s (user)\n%s", h.Name, h.Project, h.Global, hook.Snippet(h))
 	if h.TOMLSnippet != "" {
@@ -294,14 +287,4 @@ func (e *env) cmdHookPrint(args []string) int {
 		fmt.Fprintf(e.stdout, "\n# %s\n", h.Note)
 	}
 	return lock.ExitOK
-}
-
-func indent(s, pad string) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	for i, l := range lines {
-		if l != "" {
-			lines[i] = pad + l
-		}
-	}
-	return strings.Join(lines, "\n")
 }

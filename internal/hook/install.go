@@ -22,8 +22,8 @@ type Harness struct {
 	TOMLSnippet string // for harnesses whose config is TOML
 }
 
-// Harnesses is the built-in table. Anything not listed here is served by
-// `afl hook print generic`, which explains the exit-code contract.
+// Harnesses is the built-in table. Anything not listed here has to be wired
+// up by hand against the exit-code contract documented in the README.
 var Harnesses = []Harness{
 	{
 		Name:    "claude",
@@ -73,13 +73,6 @@ func HarnessNames() []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// PrintNames adds "generic" to the installable harnesses: `hook print`
-// accepts it because the contract is documentation, but there is no file for
-// `hook install` to write, so it is not offered there.
-func PrintNames() []string {
-	return append(HarnessNames(), "generic")
 }
 
 // Command is the hook command line written into a config file.
@@ -217,25 +210,3 @@ func Snippet(h Harness) string {
 }
 `, h.Matcher, Command)
 }
-
-// GenericContract documents what a harness has to do to use `afl hook` when
-// afl has no preset for it.
-const GenericContract = `Generic contract — any harness that can run a command before a tool call:
-
-  command:  afl hook [--format auto|json|exit-code] [--strict] [<path>...]
-  stdin:    the tool call as JSON (optional). afl reads tool_name, tool_input,
-            cwd and hook_event_name, and also finds paths in any object with
-            file_path / path / target_file / source / destination keys, in any
-            command / cmd string (parsed as a shell command line), and in any
-            patch / diff body.
-  argv:     paths may be passed as arguments instead of, or in addition to,
-            the JSON body.
-  stdout:   on deny, a JSON object carrying the reason under
-            hookSpecificOutput.permissionDecision = "deny", decision = "block"
-            and reason (all three, so several protocols are satisfied at once).
-  stderr:   on deny, the same reason as plain text.
-  exit:     0 = allow, 2 = deny. Nothing is printed when the call is allowed.
-
-  Use --format json if the harness treats a non-zero exit as a broken hook,
-  and --format exit-code if it only looks at the exit status and stderr.
-`

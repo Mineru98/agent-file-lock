@@ -38,7 +38,7 @@ complete -c afl -n "__fish_seen_subcommand_from run" -l as-root -d 'Keep root fo
 complete -c afl -n "__fish_seen_subcommand_from hook" -F
 complete -c afl -n "__fish_seen_subcommand_from hook; and not __fish_seen_subcommand_from install uninstall print check" -a 'install uninstall print check'
 complete -c afl -n "__fish_seen_subcommand_from install uninstall" -a 'claude codex'
-complete -c afl -n "__fish_seen_subcommand_from print" -a 'claude codex generic'
+complete -c afl -n "__fish_seen_subcommand_from print" -a 'claude codex'
 complete -c afl -n "__fish_seen_subcommand_from hook" -l format -x -a 'auto json exit-code' -d 'Response dialect'
 complete -c afl -n "__fish_seen_subcommand_from hook" -l strict -d 'Deny unclassifiable commands naming a locked path'
 complete -c afl -n "__fish_seen_subcommand_from hook" -l all -d 'Every known harness'

@@ -34,7 +34,7 @@ _afl() {
       fi ;;
     print)
       if [ "${COMP_WORDS[1]}" = "hook" ]; then
-        COMPREPLY=( $(compgen -W "claude codex generic" -- "$cur") )
+        COMPREPLY=( $(compgen -W "claude codex" -- "$cur") )
         return 0
       fi ;;
   esac

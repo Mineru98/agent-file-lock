@@ -680,14 +680,6 @@ func TestHookInstallWritesHarnessConfig(t *testing.T) {
 	if c := h.run("hook", "install", "nope"); c != lock.ExitUsage {
 		t.Errorf("unknown harness should be a usage error: %d", c)
 	}
-	// "generic" is documentation, not a config file: install must refuse it
-	// and name only the harnesses it can write to.
-	if c := h.run("hook", "install", "generic"); c != lock.ExitUsage {
-		t.Errorf("generic is not installable: %d", c)
-	}
-	if e := h.stderr.String(); strings.Contains(e, "generic") && !strings.Contains(e, `"generic"`) {
-		t.Errorf("generic offered as an install target: %s", e)
-	}
 	if c := h.run("hook", "install", "claude", "--project", "--global"); c != lock.ExitUsage {
 		t.Errorf("--project with --global should be a usage error: %d", c)
 	}
@@ -743,16 +735,18 @@ func TestParseScopeAnswer(t *testing.T) {
 	}
 }
 
-func TestHookPrintCoversUnknownHarnesses(t *testing.T) {
+func TestHookPrintNeedsAKnownHarness(t *testing.T) {
 	h := newHarness(t)
-	if c := h.run("hook", "print"); c != lock.ExitOK {
-		t.Fatalf("print: %d %s", c, h.stderr.String())
+	// No harness at all, and an unknown one, are both usage errors now that
+	// there is no catch-all to fall back on.
+	if c := h.run("hook", "print"); c != lock.ExitUsage {
+		t.Errorf("print without a harness should be a usage error: %d", c)
 	}
-	out := h.stdout.String()
-	for _, want := range []string{"exit:", "0 = allow, 2 = deny", notice.Headline} {
-		if !strings.Contains(out, want) {
-			t.Errorf("generic contract missing %q:\n%s", want, out)
-		}
+	if c := h.run("hook", "print", "generic"); c != lock.ExitUsage {
+		t.Errorf("generic is not a harness: %d", c)
+	}
+	if c := h.run("hook", "print", "claude"); c != lock.ExitOK || !strings.Contains(h.stdout.String(), "PreToolUse") {
+		t.Errorf("claude snippet: %d %s", c, h.stdout.String())
 	}
 	if c := h.run("hook", "print", "codex"); c != lock.ExitOK || !strings.Contains(h.stdout.String(), "PreToolUse") {
 		t.Errorf("codex snippet: %d %s", c, h.stdout.String())

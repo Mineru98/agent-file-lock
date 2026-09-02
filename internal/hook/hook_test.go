@@ -284,7 +284,7 @@ func TestFindHarnessAcceptsTheOldClaudeCodeName(t *testing.T) {
 	}
 	for _, n := range HarnessNames() {
 		if n == "generic" {
-			t.Error("generic must not be offered as an install target")
+			t.Error("generic is not a harness any more")
 		}
 	}
 }
