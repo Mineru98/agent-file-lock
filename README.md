@@ -35,17 +35,27 @@ Single static Go binary. No runtime dependencies (stdlib only).
 
 ## Install
 
+**Linux and macOS — download the release binary for this machine**
+
 ```sh
-# Linux and macOS — download the release binary for this machine
 curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | sh
+```
 
-# macOS (Homebrew cask, installs shell completions too)
+**macOS — Homebrew cask (installs shell completions too)**
+
+```sh
 brew install Mineru98/tap/afl
+```
 
-# any platform with a Go toolchain
+**Any platform with a Go toolchain**
+
+```sh
 go install github.com/Mineru98/agent-file-lock/cmd/afl@latest
+```
 
-# from source
+**From source**
+
+```sh
 make build && cp bin/afl /usr/local/bin/
 ```
 
@@ -66,6 +76,46 @@ Prebuilt tarballs for linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64 ar
 attached to every [release](https://github.com/Mineru98/agent-file-lock/releases),
 so `curl -fsSL <asset-url> | tar xzf - afl` works too if you would rather not
 run a script at all.
+
+## Update
+
+Update the way you installed — each command below replaces the binary in place.
+Nothing else has to be redone: the hook config calls `afl` by name off your
+`PATH`, and locks are kernel flags on the files themselves, so both survive the
+swap untouched.
+
+**Linux and macOS — the install script**
+
+```sh
+# same command as the install; it overwrites the existing binary
+curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | sh
+```
+
+**macOS — Homebrew cask**
+
+```sh
+brew update && brew upgrade --cask Mineru98/tap/afl
+```
+
+**Any platform with a Go toolchain**
+
+```sh
+go install github.com/Mineru98/agent-file-lock/cmd/afl@latest
+```
+
+**From source**
+
+```sh
+git pull && make build && cp bin/afl /usr/local/bin/
+```
+
+Then confirm which build you are on, and downgrade by pinning the tag if a
+release turns out to be worse than the one it replaced:
+
+```sh
+afl version
+curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | AFL_VERSION=v0.1.4 sh
+```
 
 ## Quick start
 
