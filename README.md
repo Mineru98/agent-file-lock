@@ -162,6 +162,10 @@ Pushing a `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/rele
 which builds the four platform tarballs with goreleaser and publishes them as a
 GitHub release.
 
+A release can also be re-run for an existing tag from the Actions tab
+(`workflow_dispatch`, with the tag as input); conflicting assets are replaced
+rather than failing the job.
+
 The Homebrew cask in [Mineru98/homebrew-tap](https://github.com/Mineru98/homebrew-tap)
 is only pushed automatically when a `HOMEBREW_TAP_TOKEN` repository secret exists
 that can write to that tap. Without it goreleaser skips the cask and the release
