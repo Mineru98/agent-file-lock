@@ -24,6 +24,7 @@ type runReport struct {
 	Command_  int           `json:"command_exit"`
 	Relock    lock.Summary  `json:"relock"`
 	RelockRes []lock.Result `json:"relock_results,omitempty"`
+	Reguard   *lock.Summary `json:"reguard,omitempty"`
 	ExitCode  int           `json:"exit_code"`
 }
 
@@ -84,6 +85,20 @@ func (e *env) cmdRun(args []string) int {
 		}
 	}
 
+	// The parent guards have to come down with the locks. Leaving a directory
+	// append-only would make `git pull` fail on exactly the files afl just
+	// unlocked, since git replaces them by renaming a temporary file over the
+	// old one — which is the failure `afl run` exists to prevent.
+	var guardDirs []lock.Target
+	if c.guarding() {
+		root, err := e.guardRootFor(&c, entries, targets)
+		if err != nil {
+			fmt.Fprintf(e.stderr, "afl: %v\n", err)
+			return mapPlanErr(err)
+		}
+		guardDirs, _ = lock.GuardPlan(targets, root, guardLevel(entries))
+	}
+
 	rep := runReport{Command: argv}
 
 	unlockTargets := append([]lock.Target(nil), targets...)
@@ -102,8 +117,21 @@ func (e *env) cmdRun(args []string) int {
 		fmt.Fprintf(e.stderr, "afl: unlock failed; command not run\n")
 		return unlockSum.ExitCode
 	}
+	// ReleaseGuard keeps any directory that still has locked files beneath it,
+	// so a config covering part of a tree cannot expose the rest.
+	released := 0
+	if len(guardDirs) > 0 {
+		gres, gsum := lock.ReleaseGuard(guardDirs, e.deps.Locker, false)
+		released = gsum.Changed
+		for _, r := range gres {
+			if r.Outcome == lock.OutcomeFailed {
+				fmt.Fprintf(e.stderr, "[FAIL]     unguard %s: %s\n", r.Path, r.Error)
+			}
+		}
+	}
 	if !c.quiet && !c.json {
-		fmt.Fprintf(e.stdout, "afl: unlocked %d, running: %s\n", unlockSum.Changed, strings.Join(argv, " "))
+		fmt.Fprintf(e.stdout, "afl: unlocked %d, released %d parent guard(s), running: %s\n",
+			unlockSum.Changed, released, strings.Join(argv, " "))
 	}
 
 	var drop *Credential
@@ -121,8 +149,24 @@ func (e *env) cmdRun(args []string) int {
 	rep.RelockRes = relockRes
 	e.reportRelock(&c, relockRes, relockSum)
 
+	reguardFailed := 0
+	if len(guardDirs) > 0 {
+		gres, gsum := lock.ApplyGuard(guardDirs, e.deps.Locker, false)
+		rep.Reguard = &gsum
+		reguardFailed = gsum.Failed
+		for _, r := range gres {
+			if r.Outcome == lock.OutcomeFailed {
+				fmt.Fprintf(e.stderr, "[FAIL]     reguard %s: %s\n", r.Path, r.Error)
+			}
+		}
+		if gsum.Failed > 0 {
+			fmt.Fprintf(e.stderr, "afl: WARNING %d parent director(y|ies) are no longer append-only; run: sudo afl lock %s\n",
+				gsum.Failed, relockHint(&c))
+		}
+	}
+
 	switch {
-	case relockSum.Failed > 0:
+	case relockSum.Failed > 0 || reguardFailed > 0:
 		rep.ExitCode = lock.ExitPartial
 	case cmdErr != nil && cmdExit == 0:
 		rep.ExitCode = lock.ExitPartial

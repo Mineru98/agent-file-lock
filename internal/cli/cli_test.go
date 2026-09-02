@@ -462,3 +462,75 @@ func TestSudoCaller(t *testing.T) {
 		t.Errorf("sudoCaller = %+v", got)
 	}
 }
+
+// --- parent guard -----------------------------------------------------------
+
+func TestLockGuardsAncestorsUpToTheRoot(t *testing.T) {
+	h := newHarness(t)
+	h.root = true
+	if c := h.run("lock", "--guard-root", "@.", "@docs/specs/a.md"); c != lock.ExitOK {
+		t.Fatalf("lock: %d %s", c, h.stderr.String())
+	}
+	for _, d := range []string{"docs/specs", "docs", ""} {
+		if !h.fake.append_[h.p(d)] {
+			t.Errorf("%s not guarded: %v", d, h.fake.append_)
+		}
+	}
+	out := h.stdout.String()
+	if !strings.Contains(out, "[guarded]") || !strings.Contains(out, "parent directories guarded") {
+		t.Errorf("guard not reported: %s", out)
+	}
+	// the summary line still counts only the files the user asked about
+	if !strings.Contains(out, "lock: 1 changed") {
+		t.Errorf("summary should count files, not guards: %s", out)
+	}
+}
+
+func TestNoGuardParentsLeavesAncestorsAlone(t *testing.T) {
+	h := newHarness(t)
+	h.root = true
+	if c := h.run("lock", "--no-guard-parents", "@docs/specs/a.md"); c != lock.ExitOK {
+		t.Fatalf("lock: %d %s", c, h.stderr.String())
+	}
+	if len(h.fake.append_) != 0 {
+		t.Errorf("nothing should be guarded: %v", h.fake.append_)
+	}
+	if strings.Contains(h.stdout.String(), "[guarded]") {
+		t.Errorf("unexpected guard output: %s", h.stdout.String())
+	}
+}
+
+func TestGuardRootMustBeSane(t *testing.T) {
+	h := newHarness(t)
+	h.root = true
+	if c := h.run("lock", "--guard-root", "/", "@docs/specs/a.md"); c != lock.ExitUsage {
+		t.Errorf("guarding / should be refused: %d %s", c, h.stderr.String())
+	}
+	if len(h.fake.strong) != 0 {
+		t.Error("nothing should have been locked after the guard root was rejected")
+	}
+}
+
+func TestUnlockKeepsGuardsWhileSiblingsAreLocked(t *testing.T) {
+	h := newHarness(t)
+	h.root = true
+	if c := h.run("lock", "--guard-root", "@.", "-R", "@docs"); c != lock.ExitOK {
+		t.Fatalf("lock -R: %d %s", c, h.stderr.String())
+	}
+	if c := h.run("unlock", "--guard-root", "@.", "@docs/specs/a.md"); c != lock.ExitOK {
+		t.Fatalf("unlock one: %d %s", c, h.stderr.String())
+	}
+	if !h.fake.append_[h.p("docs")] {
+		t.Error("docs must stay guarded while docs/POLICY.md is still locked")
+	}
+	if !strings.Contains(h.stdout.String(), "remain beneath") {
+		t.Errorf("the reason should be explicit: %s", h.stdout.String())
+	}
+	// unlocking everything releases the guards
+	if c := h.run("unlock", "--guard-root", "@.", "-R", "@docs"); c != lock.ExitOK {
+		t.Fatalf("unlock all: %d %s", c, h.stderr.String())
+	}
+	if h.fake.append_[h.p("docs")] || h.fake.append_[h.p("docs/specs")] {
+		t.Errorf("guards should be released: %v", h.fake.append_)
+	}
+}

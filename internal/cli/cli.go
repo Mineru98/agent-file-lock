@@ -106,6 +106,11 @@ Flags (lock / unlock / status):
       --include-dirs    with -R: also lock directory inodes (blocks new files)
       --dir-only        act on the directory inode only, not its contents
       --level strong|user   strong = chattr +i / schg (default); user = chmod a-w (+uchg)
+      --guard-parents   make ancestor directories append-only so they cannot be
+                        renamed around the lock (default: on for lock/unlock)
+      --no-guard-parents    leave ancestors alone (reopens the mv-the-parent bypass)
+      --guard-root <dir>    how far up the guard walks (default: config dir, else
+                        the git worktree root, else the target's own parent)
       --exclude <glob>  skip matching paths (repeatable; ** supported)
       --follow-symlinks act on symlink targets instead of skipping them
   -n, --dry-run         print the plan without changing anything
@@ -117,6 +122,7 @@ Flags (lock / unlock / status):
 
 Notes: a symlink is never locked (it is reported, and check treats it as drift).
        unlock after a user-level lock restores u+w only; group/other write bits are not restored.
+       an append-only parent still accepts new files; it refuses deletes and renames of the entries it already has.
 
 Exit codes: 0 ok · 1 partial failure / check drift · 2 usage · 3 privileges · 4 unsupported filesystem
 `)
@@ -136,6 +142,9 @@ type common struct {
 	json           bool
 	quiet          bool
 	elevate        bool
+	guardParents   bool
+	noGuard        bool
+	guardRoot      string
 }
 
 type multiFlag []string
@@ -163,6 +172,9 @@ func (e *env) newFlagSet(name string, c *common) *flag.FlagSet {
 	fs.BoolVar(&c.quiet, "q", false, "quiet")
 	fs.BoolVar(&c.quiet, "quiet", false, "quiet")
 	fs.BoolVar(&c.elevate, "elevate", false, "re-exec via sudo")
+	fs.BoolVar(&c.guardParents, "guard-parents", true, "guard ancestor directories")
+	fs.BoolVar(&c.noGuard, "no-guard-parents", false, "do not guard ancestor directories")
+	fs.StringVar(&c.guardRoot, "guard-root", "", "how far up the guard walks")
 	return fs
 }
 
@@ -204,10 +216,15 @@ func (e *env) usageErr(format string, a ...any) int {
 	return lock.ExitUsage
 }
 
+// guarding reports whether ancestor directories should be guarded.
+func (c *common) guarding() bool { return c.guardParents && !c.noGuard }
+
 // mapPlanErr converts plan-time failures into exit codes.
 func mapPlanErr(err error) int {
 	switch {
 	case errors.Is(err, lock.ErrDirNeedsRecursive):
+		return lock.ExitUsage
+	case errors.Is(err, lock.ErrGuardRoot):
 		return lock.ExitUsage
 	case errors.Is(err, platform.ErrPermission):
 		return lock.ExitPermission
