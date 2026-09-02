@@ -14,15 +14,46 @@ archives:
     files: [LICENSE, README.md, afl.yaml.example]
 checksum:
   name_template: checksums.txt
-brews:
-  - repository:
+release:
+  draft: false
+  prerelease: auto
+  # Re-running a release (e.g. after a transient CI failure) replaces the
+  # artifacts instead of erroring out.
+  mode: replace
+  footer: |
+    ## Install
+
+    ```sh
+    brew install Mineru98/tap/afl
+    # or
+    go install github.com/Mineru98/agent-file-lock/cmd/afl@{{ .Tag }}
+    ```
+
+# Homebrew formulae for third-party binaries are deprecated; casks are the
+# supported path. Casks are macOS-only — Linux users install with `go install`
+# or the release tarball.
+homebrew_casks:
+  - name: afl
+    binaries: [afl]
+    # Skipped unless a token that can write to Mineru98/homebrew-tap is present,
+    # so a release from CI with only the repo-scoped GITHUB_TOKEN still succeeds.
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    repository:
       owner: Mineru98
       name: homebrew-tap
+      branch: main
+      token: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}{{ .Env.HOMEBREW_TAP_TOKEN }}{{ end }}'
     homepage: https://github.com/Mineru98/agent-file-lock
     description: Lock files against coding agents with OS-level immutable flags
     license: MIT
-    install: |
-      bin.install "afl"
-      generate_completions_from_executable(bin/"afl", "completion")
-    test: |
-      system "#{bin}/afl", "version"
+    generate_completions_from_executable:
+      executable: afl
+      args: [completion]
+      base_name: afl
+      shell_parameter_format: arg
+      shells: [bash, zsh, fish]
+    caveats: |
+      Strong locks (chflags schg) need root:
+        sudo afl lock -f afl.yaml
+      Verifying needs no privileges:
+        afl check -f afl.yaml

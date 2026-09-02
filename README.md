@@ -17,12 +17,18 @@ Single static Go binary. No runtime dependencies (stdlib only).
 ## Install
 
 ```sh
+# macOS (Homebrew cask, installs shell completions too)
+brew install Mineru98/tap/afl
+
+# any platform with a Go toolchain
 go install github.com/Mineru98/agent-file-lock/cmd/afl@latest
-# or build from source
+
+# from source
 make build && cp bin/afl /usr/local/bin/
 ```
 
-Prebuilt binaries: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 (`make cross`).
+Prebuilt tarballs for linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64 are
+attached to every [release](https://github.com/Mineru98/agent-file-lock/releases).
 
 ## Usage
 
