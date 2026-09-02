@@ -24,24 +24,24 @@ func (e *env) printResults(c *common, action lock.Action, results []lock.Result,
 	for _, r := range results {
 		switch r.Outcome {
 		case lock.OutcomeFailed:
-			fmt.Fprintf(e.stderr, "%-10s%s: %s\n", "[FAIL]", r.Path, r.Error)
+			fmt.Fprintf(e.stderr, "%-11s%s: %s\n", "[FAIL]", r.Path, r.Error)
 		case lock.OutcomeChanged:
 			if !c.quiet {
-				fmt.Fprintf(e.stdout, "%-10s%s%s\n", "["+pastTense(action)+"]", r.Path, levelSuffix(r))
+				fmt.Fprintf(e.stdout, "%-11s%s%s\n", "["+pastTense(action)+"]", r.Path, levelSuffix(r))
 			}
 		case lock.OutcomeSkipped:
 			if !c.quiet {
-				fmt.Fprintf(e.stdout, "%-10s%s (already %s)\n", "[skip]", r.Path, skipReason(action, r))
+				fmt.Fprintf(e.stdout, "%-11s%s (already %s)\n", "[skip]", r.Path, skipReason(action, r))
 			}
 		case lock.OutcomePlanned:
 			if !c.quiet {
-				fmt.Fprintf(e.stdout, "%-10s would %s %s%s\n", "[plan]", action, r.Path, levelSuffix(r))
+				fmt.Fprintf(e.stdout, "%-11s would %s %s%s\n", "[plan]", action, r.Path, levelSuffix(r))
 			}
 		}
 	}
 	if !c.quiet {
 		for _, s := range skipped {
-			fmt.Fprintf(e.stdout, "%-10s%s (%s)\n", "[skip]", s.Path, s.Reason)
+			fmt.Fprintf(e.stdout, "%-11s%s (%s)\n", "[skip]", s.Path, s.Reason)
 		}
 		verb := "changed"
 		if c.dryRun {

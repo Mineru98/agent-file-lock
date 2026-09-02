@@ -16,12 +16,15 @@ test-root:
 	sudo go test ./... -run 'Strong' -v
 
 ## Runs the whole suite as root with CAP_LINUX_IMMUTABLE inside Docker.
+## TMPDIR points at a named volume (ext4) so the strong round trip really runs;
+## bind mounts from macOS hosts are virtiofs/9p and cannot hold the flag.
+DOCKER_GO = docker run --rm -v "$(CURDIR)":/src -v afl-test-vol:/vol -w /src -e GOFLAGS=-buildvcs=false -e TMPDIR=/vol golang:1.27
 test-linux:
-	docker run --rm --cap-add LINUX_IMMUTABLE -v "$(CURDIR)":/src -w /src -e GOFLAGS=-buildvcs=false golang:1.27 go test ./...
+	docker run --rm --cap-add LINUX_IMMUTABLE -v "$(CURDIR)":/src -v afl-test-vol:/vol -w /src -e GOFLAGS=-buildvcs=false -e TMPDIR=/vol golang:1.27 go test ./...
 
 ## Proves the capability check: same image without the cap must fail with exit 3.
 test-linux-nocap:
-	docker run --rm -v "$(CURDIR)":/src -w /src -e GOFLAGS=-buildvcs=false golang:1.27 sh -c 'go build -o /tmp/afl ./cmd/afl && touch /tmp/x && /tmp/afl lock /tmp/x; echo "exit=$$?"'
+	$(DOCKER_GO) sh -c 'go build -o /tmp/afl ./cmd/afl && touch /vol/x && /tmp/afl lock /vol/x; echo "exit=$$?"; rm -f /vol/x'
 
 vet:
 	go vet ./...

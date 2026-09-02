@@ -160,7 +160,6 @@ var noStrongFS = map[string]string{
 	"msdos":    "FAT filesystems have no inode flags; use --level user",
 	"ntfs":     "NTFS-3G does not support immutable flags; use --level user",
 	"ntfs3":    "ntfs3 does not support immutable flags; use --level user",
-	"overlay":  "overlayfs forwards flags inconsistently; lock the files on the lower/upper filesystem directly",
 	"squashfs": "squashfs is already read-only",
 	"iso9660":  "iso9660 is already read-only",
 }
