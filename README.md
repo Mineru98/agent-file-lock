@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/05-before-after-split.png" alt="agent-file-lock — immutable by agent" width="720">
+  <img src="./assets/banner.png" alt="agent-file-lock — immutable by agent" width="720">
 </p>
 
 # agent-file-lock (`afl`)
