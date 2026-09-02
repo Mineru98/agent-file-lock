@@ -57,66 +57,6 @@ Single static Go binary. No runtime dependencies (stdlib only).
 | `user` | `chmod a-w` (+ macOS `UF_IMMUTABLE`) | Yes | No (Linux) / Yes (macOS) |
 | parent guard | Linux `FS_APPEND_FL`, macOS `SF_APPEND` | **No** (root only) | **Yes** (adds are still allowed) |
 
-## How it works
-
-Two layers, and they fail in opposite directions. The kernel flag is what
-actually stops the write; the hook is what explains it. Either one alone leaves
-a gap: a flag with no explanation invites the workaround, and an explanation
-with no flag is a suggestion.
-
-```mermaid
-sequenceDiagram
-    participant A as Coding agent
-    participant H as afl hook
-    participant K as Kernel
-    participant F as docs/POLICY.md
-
-    A->>H: PreToolUse: Edit docs/POLICY.md
-    H->>F: read lock state (no privileges needed)
-    F-->>H: immutable, parents append-only
-    H-->>A: exit 2 + reason on stderr
-    Note over A,H: the agent is told a person decided this,<br/>so it stops instead of routing around it
-
-    A->>K: write anyway (hook absent, or another process)
-    K-->>A: EPERM — the flag refuses it regardless
-```
-
-`afl hook` reads the harness payload on stdin, works out every path the tool
-call would create, overwrite, move or delete, and answers before the syscall
-happens. It never writes anything and needs no privileges.
-
-```mermaid
-flowchart LR
-    S["PreToolUse payload on stdin"] --> E{"PreToolUse event?"}
-    E -- "no (PostToolUse, ...)" --> ALLOW["exit 0 — allow"]
-    E -- yes --> R{"read-only tool?<br/>Read, Grep, Glob, ..."}
-    R -- yes --> ALLOW
-    R -- no --> C["collect candidate paths:<br/>file_path-style keys,<br/>shell command line, patch body"]
-    C --> X{"path exists on disk?"}
-    X -- "no (creating it is fine)" --> ALLOW
-    X -- yes --> L{"locked strong or user?"}
-    L -- yes --> DENY["exit 2 — refuse,<br/>reason on stderr"]
-    L -- no --> G{"delete or rename inside<br/>an append-only guard?"}
-    G -- yes --> DENY
-    G -- no --> ALLOW
-```
-
-Locking one file marks its ancestors too, which is what closes the
-rename-the-parent bypass. Guarded directories still accept new entries, so the
-tree stays usable:
-
-```mermaid
-flowchart TD
-    root["project root/<br/>append-only guard<br/>— cannot be renamed or emptied"]
-    docs["docs/<br/>append-only guard<br/>— mv docs docs.old is refused"]
-    policy["POLICY.md<br/>immutable — the locked file<br/>— write, rm and mv are all refused"]
-    scratch["scratch.md<br/>plain file, untouched<br/>— guarded dirs still accept new entries"]
-
-    root --> docs
-    docs --> policy
-    docs --> scratch
-```
-
 ## Install
 
 **Linux and macOS — download the release binary for this machine**
@@ -199,6 +139,66 @@ release turns out to be worse than the one it replaced:
 ```sh
 afl version
 curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | AFL_VERSION=v0.1.4 sh
+```
+
+## How it works
+
+Two layers, and they fail in opposite directions. The kernel flag is what
+actually stops the write; the hook is what explains it. Either one alone leaves
+a gap: a flag with no explanation invites the workaround, and an explanation
+with no flag is a suggestion.
+
+```mermaid
+sequenceDiagram
+    participant A as Coding agent
+    participant H as afl hook
+    participant K as Kernel
+    participant F as docs/POLICY.md
+
+    A->>H: PreToolUse: Edit docs/POLICY.md
+    H->>F: read lock state (no privileges needed)
+    F-->>H: immutable, parents append-only
+    H-->>A: exit 2 + reason on stderr
+    Note over A,H: the agent is told a person decided this,<br/>so it stops instead of routing around it
+
+    A->>K: write anyway (hook absent, or another process)
+    K-->>A: EPERM — the flag refuses it regardless
+```
+
+`afl hook` reads the harness payload on stdin, works out every path the tool
+call would create, overwrite, move or delete, and answers before the syscall
+happens. It never writes anything and needs no privileges.
+
+```mermaid
+flowchart LR
+    S["PreToolUse payload on stdin"] --> E{"PreToolUse event?"}
+    E -- "no (PostToolUse, ...)" --> ALLOW["exit 0 — allow"]
+    E -- yes --> R{"read-only tool?<br/>Read, Grep, Glob, ..."}
+    R -- yes --> ALLOW
+    R -- no --> C["collect candidate paths:<br/>file_path-style keys,<br/>shell command line, patch body"]
+    C --> X{"path exists on disk?"}
+    X -- "no (creating it is fine)" --> ALLOW
+    X -- yes --> L{"locked strong or user?"}
+    L -- yes --> DENY["exit 2 — refuse,<br/>reason on stderr"]
+    L -- no --> G{"delete or rename inside<br/>an append-only guard?"}
+    G -- yes --> DENY
+    G -- no --> ALLOW
+```
+
+Locking one file marks its ancestors too, which is what closes the
+rename-the-parent bypass. Guarded directories still accept new entries, so the
+tree stays usable:
+
+```mermaid
+flowchart TD
+    root["project root/<br/>append-only guard<br/>— cannot be renamed or emptied"]
+    docs["docs/<br/>append-only guard<br/>— mv docs docs.old is refused"]
+    policy["POLICY.md<br/>immutable — the locked file<br/>— write, rm and mv are all refused"]
+    scratch["scratch.md<br/>plain file, untouched<br/>— guarded dirs still accept new entries"]
+
+    root --> docs
+    docs --> policy
+    docs --> scratch
 ```
 
 ## Quick start
