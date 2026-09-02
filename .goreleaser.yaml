@@ -38,13 +38,53 @@ release:
   footer: |
     ## Install
 
+    **Linux and macOS — release binary for this machine**
+
     ```sh
-    # Linux / macOS, this release
     curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | AFL_VERSION={{ .Tag }} sh
-    # macOS
+    ```
+
+    **macOS — Homebrew cask (shell completions included)**
+
+    ```sh
     brew install Mineru98/tap/afl
-    # with a Go toolchain
+    ```
+
+    **Any platform with a Go toolchain**
+
+    ```sh
     go install github.com/Mineru98/agent-file-lock/cmd/afl@{{ .Tag }}
+    ```
+
+    ## Update
+
+    Update the way you installed — each command replaces the binary in place.
+    Nothing else has to be redone: the hook config calls `afl` by name off your
+    `PATH`, and locks are kernel flags on the files themselves, so both survive
+    the swap untouched.
+
+    **Linux and macOS — release binary for this machine**
+
+    ```sh
+    curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | AFL_VERSION={{ .Tag }} sh
+    ```
+
+    **macOS — Homebrew cask**
+
+    ```sh
+    brew update && brew upgrade --cask Mineru98/tap/afl
+    ```
+
+    **Any platform with a Go toolchain**
+
+    ```sh
+    go install github.com/Mineru98/agent-file-lock/cmd/afl@{{ .Tag }}
+    ```
+
+    Then check which build you ended up on:
+
+    ```sh
+    afl version
     ```
 
 # Homebrew formulae for third-party binaries are deprecated; casks are the
