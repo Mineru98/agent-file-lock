@@ -9,6 +9,7 @@ _afl() {
     'unlock:Remove locks'
     'status:Show lock state'
     'check:Compare config against actual state (exit 1 on drift)'
+    'run:Unlock, run a command, then re-lock'
     'doctor:Diagnose platform, privileges and filesystem support'
     'completion:Print shell completion script'
     'version:Print version'
@@ -41,6 +42,7 @@ _afl() {
     args)
       case "${words[1]}" in
         lock|unlock|status|check) _arguments "${common[@]}" '*:path:_files' ;;
+        run) _arguments "${common[@]}" '--as-root[keep root for the command]' '*::command:_normal' ;;
         doctor) _arguments '--json[machine-readable output]' '*:path:_files' ;;
         completion) _arguments '1:shell:(bash zsh fish)' ;;
       esac ;;

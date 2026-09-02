@@ -33,6 +33,7 @@ afl lock   -f afl.yaml                everything listed in the config
 afl unlock <path>... | -R <dir> | -f afl.yaml
 afl status [-R] <path>... | -f afl.yaml
 afl check  -f afl.yaml                exit 1 if anything drifted (CI / pre-commit; no root)
+afl run    -f afl.yaml -- <cmd...>    unlock, run <cmd>, then always re-lock
 afl doctor [<path>]                   OS, privileges, filesystem support, WSL detection
 afl completion bash|zsh|fish
 ```
@@ -89,6 +90,17 @@ rejected with a line number — use JSON if you need them. See
 
 Locked files that git tracks make `git pull` / `checkout` fail when upstream
 changes them. That is the point. To update:
+
+```sh
+sudo afl run -f afl.yaml -- git pull
+```
+
+`afl run` unlocks the protected set, runs the command, and re-locks afterwards
+regardless of how the command ends (its exit code is passed through; a failed
+re-lock turns it into exit 1 with a loud warning). Under `sudo` the command is
+run as the invoking user (`SUDO_UID`/`SUDO_GID`), so `git pull` or an editor does
+not create root-owned files; pass `--as-root` to keep root. The manual form still
+works if you prefer it:
 
 ```sh
 sudo afl unlock -f afl.yaml && git pull && sudo afl lock -f afl.yaml

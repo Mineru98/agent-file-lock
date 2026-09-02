@@ -21,7 +21,7 @@ type Deps struct {
 	StrongOK func() (bool, string)
 	IsRoot   func() bool
 	Elevate  func(args []string) error // re-exec through sudo; returns only on failure
-	Env      *env
+	Run      RunCommand                // executes the `afl run` child
 }
 
 type env struct {
@@ -48,6 +48,9 @@ func RunWith(args []string, stdout, stderr io.Writer, d Deps) int {
 	if d.Elevate == nil {
 		d.Elevate = elevate
 	}
+	if d.Run == nil {
+		d.Run = runCommand
+	}
 	e := &env{stdout: stdout, stderr: stderr, deps: d}
 	if len(args) == 0 {
 		e.usageTo(stderr)
@@ -63,6 +66,8 @@ func RunWith(args []string, stdout, stderr io.Writer, d Deps) int {
 		return e.cmdStatus(rest)
 	case "check":
 		return e.cmdCheck(rest)
+	case "run":
+		return e.cmdRun(rest)
 	case "doctor":
 		return e.cmdDoctor(rest)
 	case "completion":
@@ -90,6 +95,7 @@ Usage:
   afl unlock [flags] <path>... | -f <config>
   afl status [flags] <path>... | -f <config>
   afl check  -f <config>              exit 1 if any protected path is not locked (CI / pre-commit)
+  afl run    -f <config> -- <cmd...>  unlock, run <cmd>, then always re-lock (e.g. -- git pull)
   afl doctor [--json] [<path>]        diagnose OS, privileges, filesystem support
   afl completion bash|zsh|fish        print shell completion script
   afl version
@@ -107,6 +113,7 @@ Flags (lock / unlock / status):
       --json            machine-readable output
   -q, --quiet           only print failures
       --elevate         re-exec through sudo when not running as root
+      --as-root         run: keep root for the command (default: drop to SUDO_UID/SUDO_GID)
 
 Notes: a symlink is never locked (it is reported, and check treats it as drift).
        unlock after a user-level lock restores u+w only; group/other write bits are not restored.

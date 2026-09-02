@@ -21,13 +21,13 @@ _afl() {
   esac
 
   if [ "$COMP_CWORD" -eq 1 ]; then
-    COMPREPLY=( $(compgen -W "lock unlock status check doctor completion version help" -- "$cur") )
+    COMPREPLY=( $(compgen -W "lock unlock status check run doctor completion version help" -- "$cur") )
     return 0
   fi
 
   case "$cur" in
     -*)
-      COMPREPLY=( $(compgen -W "-f --config -R --recursive -n --dry-run --level --include-dirs --dir-only --exclude --follow-symlinks --fail-fast --json -q --quiet --elevate -h --help -v --version" -- "$cur") )
+      COMPREPLY=( $(compgen -W "-f --config -R --recursive -n --dry-run --level --include-dirs --dir-only --exclude --follow-symlinks --fail-fast --json -q --quiet --elevate --as-root -h --help -v --version" -- "$cur") )
       return 0 ;;
   esac
   # fall through to default path completion (-o default)

@@ -19,12 +19,13 @@ import (
 type fakeLocker struct {
 	strong map[string]bool
 	user   map[string]bool
-	fail   map[string]error
+	fail   map[string]error // Lock and Unlock
+	failLk map[string]error // Lock only
 	calls  []string
 }
 
 func newFake() *fakeLocker {
-	return &fakeLocker{strong: map[string]bool{}, user: map[string]bool{}, fail: map[string]error{}}
+	return &fakeLocker{strong: map[string]bool{}, user: map[string]bool{}, fail: map[string]error{}, failLk: map[string]error{}}
 }
 
 func (f *fakeLocker) Status(p string) (platform.State, error) {
@@ -38,6 +39,9 @@ func (f *fakeLocker) Status(p string) (platform.State, error) {
 func (f *fakeLocker) Lock(p string, lvl platform.Level) error {
 	f.calls = append(f.calls, "lock "+filepath.Base(p))
 	if err := f.fail[p]; err != nil {
+		return err
+	}
+	if err := f.failLk[p]; err != nil {
 		return err
 	}
 	if lvl == platform.LevelStrong {
@@ -328,5 +332,101 @@ func TestReviewRegressions(t *testing.T) {
 	// unknown command prints usage to stderr, nothing on stdout
 	if c := h.run("nope"); c != lock.ExitUsage || h.stdout.Len() != 0 {
 		t.Errorf("unknown command stdout=%q", h.stdout.String())
+	}
+}
+
+func TestRunWrapper(t *testing.T) {
+	h := newHarness(t)
+	h.root = true
+	var ran [][]string
+	exit := 0
+	runFn := func(argv []string, drop *Credential) (int, error) {
+		ran = append(ran, argv)
+		// while the command runs, everything must be unlocked
+		if len(h.fake.strong) != 0 || len(h.fake.user) != 0 {
+			t.Errorf("targets still locked during command: strong=%v user=%v", h.fake.strong, h.fake.user)
+		}
+		return exit, nil
+	}
+	run := func(args ...string) int {
+		h.stdout.Reset()
+		h.stderr.Reset()
+		for i, a := range args {
+			if strings.HasPrefix(a, "@") {
+				args[i] = filepath.Join(h.dir, a[1:])
+			}
+		}
+		return RunWith(args, &h.stdout, &h.stderr, Deps{
+			Locker: h.fake, IsRoot: func() bool { return h.root },
+			StrongOK: func() (bool, string) { return h.root, "need root" },
+			Run:      runFn,
+		})
+	}
+
+	if c := run("run", "-f", "@afl.yaml"); c != lock.ExitUsage {
+		t.Errorf("run without --: %d", c)
+	}
+	if c := run("run", "-f", "@afl.yaml", "--"); c != lock.ExitUsage {
+		t.Errorf("run with empty command: %d", c)
+	}
+	h.root = false
+	if c := run("run", "-f", "@afl.yaml", "--", "true"); c != lock.ExitPermission || len(ran) != 0 {
+		t.Errorf("run without root: %d ran=%v", c, ran)
+	}
+	h.root = true
+
+	// pre-lock the set, run a command, expect unlock→run→relock
+	h.run("lock", "-f", "@afl.yaml")
+	if c := run("run", "-f", "@afl.yaml", "--", "git", "pull"); c != 0 || len(ran) != 1 || ran[0][1] != "pull" {
+		t.Fatalf("run: %d ran=%v err=%s", c, ran, h.stderr.String())
+	}
+	if !h.fake.strong[h.p("docs/POLICY.md")] || !h.fake.user[h.p("README.md")] {
+		t.Errorf("not re-locked after run: strong=%v user=%v", h.fake.strong, h.fake.user)
+	}
+	// command failure propagates but relock still happens
+	exit = 7
+	if c := run("run", "-q", "-f", "@afl.yaml", "--", "false"); c != 7 || !h.fake.strong[h.p("docs/POLICY.md")] {
+		t.Errorf("failing command: %d strong=%v", c, h.fake.strong)
+	}
+	// relock failure beats the command's exit code and warns
+	exit = 0
+	h.fake.failLk[h.p("README.md")] = errors.New("relock boom")
+	if c := run("run", "-f", "@afl.yaml", "--", "true"); c != lock.ExitPartial || !strings.Contains(h.stderr.String(), "still unlocked") {
+		t.Errorf("relock failure: %d %q", c, h.stderr.String())
+	}
+	h.fake.failLk = map[string]error{}
+	// unlock failure: command must not run, set is rolled back to locked
+	h.run("lock", "-f", "@afl.yaml")
+	before := len(ran)
+	h.fake.fail[h.p("docs/POLICY.md")] = errors.New("unlock boom")
+	if c := run("run", "-f", "@afl.yaml", "--", "true"); c == 0 || len(ran) != before || !strings.Contains(h.stderr.String(), "command not run") {
+		t.Errorf("unlock failure: %d ran=%d %q", c, len(ran)-before, h.stderr.String())
+	}
+	if !h.fake.user[h.p("README.md")] {
+		t.Error("rollback did not re-lock the entries that were unlocked")
+	}
+	h.fake.fail = map[string]error{}
+	// json report
+	if c := run("run", "--json", "-f", "@afl.yaml", "--", "true"); c != 0 {
+		t.Fatalf("json run: %d", c)
+	}
+	var rep runReport
+	if err := json.Unmarshal(h.stdout.Bytes(), &rep); err != nil || rep.Relock.Failed != 0 || rep.Command[0] != "true" {
+		t.Errorf("json: %v %+v", err, rep)
+	}
+}
+
+func TestSudoCaller(t *testing.T) {
+	t.Setenv("SUDO_UID", "501")
+	t.Setenv("SUDO_GID", "20")
+	got := sudoCaller()
+	if os.Geteuid() != 0 {
+		if got != nil {
+			t.Errorf("non-root should never drop: %+v", got)
+		}
+		return
+	}
+	if got == nil || got.UID != 501 || got.GID != 20 {
+		t.Errorf("sudoCaller = %+v", got)
 	}
 }
