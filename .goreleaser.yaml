@@ -39,8 +39,11 @@ release:
     ## Install
 
     ```sh
+    # Linux / macOS, this release
+    curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | AFL_VERSION={{ .Tag }} sh
+    # macOS
     brew install Mineru98/tap/afl
-    # or
+    # with a Go toolchain
     go install github.com/Mineru98/agent-file-lock/cmd/afl@{{ .Tag }}
     ```
 

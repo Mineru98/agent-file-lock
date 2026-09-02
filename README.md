@@ -32,6 +32,9 @@ Single static Go binary. No runtime dependencies (stdlib only).
 ## Install
 
 ```sh
+# Linux and macOS — download the release binary for this machine
+curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | sh
+
 # macOS (Homebrew cask, installs shell completions too)
 brew install Mineru98/tap/afl
 
@@ -42,8 +45,23 @@ go install github.com/Mineru98/agent-file-lock/cmd/afl@latest
 make build && cp bin/afl /usr/local/bin/
 ```
 
+[`install.sh`](install.sh) picks the tarball for your OS and architecture,
+checks it against the release's `checksums.txt`, and installs `afl` into
+`/usr/local/bin` — reaching for `sudo` only if that directory needs it. It
+reads three variables: `AFL_VERSION` for a specific tag, `AFL_BIN_DIR` for
+somewhere else to put the binary, and `AFL_NO_SUDO=1` to fail rather than
+escalate.
+
+```sh
+# read it before you pipe it into a shell, then pin the version and the location
+curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh -o install.sh
+AFL_VERSION=v0.1.4 AFL_BIN_DIR="$HOME/.local/bin" sh install.sh
+```
+
 Prebuilt tarballs for linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64 are
-attached to every [release](https://github.com/Mineru98/agent-file-lock/releases).
+attached to every [release](https://github.com/Mineru98/agent-file-lock/releases),
+so `curl -fsSL <asset-url> | tar xzf - afl` works too if you would rather not
+run a script at all.
 
 ## Quick start
 
