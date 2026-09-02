@@ -59,7 +59,7 @@ escalate.
 ```sh
 # read it before you pipe it into a shell, then pin the version and the location
 curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh -o install.sh
-AFL_VERSION=v0.1.4 AFL_BIN_DIR="$HOME/.local/bin" sh install.sh
+AFL_VERSION=v0.1.5 AFL_BIN_DIR="$HOME/.local/bin" sh install.sh
 ```
 
 Prebuilt tarballs for linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64 are

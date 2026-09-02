@@ -15,9 +15,9 @@ import (
 type Harness struct {
 	Name        string
 	Aliases     []string // accepted on the command line, not advertised
-	Project     string // config path relative to the project root
-	Global      string // config path relative to $HOME
-	Matcher     string // regex over tool names
+	Project     string   // config path relative to the project root
+	Global      string   // config path relative to $HOME
+	Matcher     string   // regex over tool names
 	Note        string
 	TOMLSnippet string // for harnesses whose config is TOML
 }

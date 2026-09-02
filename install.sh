@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/Mineru98/agent-file-lock/main/install.sh | sh
 #
 # Environment:
-#   AFL_VERSION   tag to install (default: the latest release, e.g. v0.1.4)
+#   AFL_VERSION   tag to install (default: the latest release, e.g. v0.1.5)
 #   AFL_BIN_DIR   where to put the binary (default: /usr/local/bin)
 #   AFL_NO_SUDO   set to 1 to fail instead of escalating to sudo
 set -eu
