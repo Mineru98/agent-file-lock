@@ -4,6 +4,30 @@
 
 # agent-file-lock (`afl`)
 
+Some documents in a repository are not really documents. They are decisions —
+argued over once, signed off, and then deliberately left alone. Our team had a
+few of those. Everyone knew which ones they were, and nobody had touched them
+in months.
+
+Then an agent touched one. It had been asked to tidy up a directory, and it
+did the job well: it reworded a heading, tightened a paragraph, dropped a line
+that read like a leftover. Every edit was defensible on its own. Together they
+quietly rewrote a rule that a person had put there on purpose, and the diff
+sat in a branch for a while before anyone looked closely enough to notice.
+
+The uncomfortable part was that nothing had gone wrong. The agent broke no
+rule, because there was no rule it could see. A note in the contributing guide
+is a request. A line in `CLAUDE.md` is a request. `chmod a-w` is barely even
+that — the next tool call runs as the same user and can undo it without ever
+reporting that it did. Everything we had was advice, and advice is exactly
+what gets optimized away by something trying to be helpful.
+
+So the guarantee had to come from somewhere the agent cannot reach, and it had
+to come with an explanation. That is the whole idea behind this tool: put the
+file beyond the reach of anything running as you, and then, when something
+reaches for it anyway, answer in a sentence a person would have written
+instead of a number the kernel had to invent.
+
 `afl` pins files that a coding agent (or anyone running as your user) must
 never modify. It uses the kernel's **immutable flag** — `chattr +i` on Linux,
 `chflags schg` on macOS — so the lock cannot be undone without root, unlike
