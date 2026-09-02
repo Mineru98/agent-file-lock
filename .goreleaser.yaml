@@ -29,9 +29,12 @@ checksum:
 release:
   draft: false
   prerelease: auto
-  # Re-running a release (e.g. after a transient CI failure) replaces the
-  # artifacts instead of erroring out.
+  # `mode` only governs the release notes.
   mode: replace
+  # Without this, re-running a release (or a workflow run that races with a
+  # manual publish) dies with a 422 already_exists on every asset. With it,
+  # goreleaser deletes the conflicting asset and retries the upload.
+  replace_existing_artifacts: true
   footer: |
     ## Install
 

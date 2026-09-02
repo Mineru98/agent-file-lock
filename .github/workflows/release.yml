@@ -3,6 +3,12 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # Lets a release be re-run for an existing tag without pushing a new one.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release (e.g. v0.1.2)
+        required: true
 
 permissions:
   contents: write
@@ -14,6 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-go@v5
         with:
           go-version: stable
