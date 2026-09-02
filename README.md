@@ -45,6 +45,69 @@ make build && cp bin/afl /usr/local/bin/
 Prebuilt tarballs for linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64 are
 attached to every [release](https://github.com/Mineru98/agent-file-lock/releases).
 
+## Quick start
+
+Write the file first and lock it second. The kernel flag makes the file
+unwritable for everyone, you included, so a file locked while it is still empty
+has to be unlocked again before it can be filled in.
+
+```sh
+mkdir -p docs
+cat > docs/POLICY.md <<'EOF'
+# Policy
+
+Never commit credentials to this repository.
+EOF
+
+sudo afl lock docs/POLICY.md
+```
+
+The file is immutable now, and every directory up to the project root is
+append-only, so the path cannot be swapped out from under the lock either:
+
+```sh
+echo x >> docs/POLICY.md      # → Operation not permitted
+rm docs/POLICY.md             # → Operation not permitted (even with sudo, until unlocked)
+mv docs docs.old              # → Operation not permitted (the parent guard)
+touch docs/scratch.md         # → fine; guarded parents still accept new files
+```
+
+Then install the hook. **Do not skip this step if an agent works in this
+repository.** Nothing is registered until you run it, and an agent that has
+only the kernel to go on reads `Operation not permitted` as a broken tool
+rather than as a decision somebody made, which is exactly when it starts
+looking for a way around. Each agent reads its own config file, so install the
+one you actually use:
+
+```sh
+afl hook install claude         # writes .claude/settings.json  (Claude Code)
+afl hook install codex          # writes .codex/hooks.json      (Codex)
+afl hook install --all          # both
+```
+
+```
+$ afl hook install claude
+[claude]       installed (/home/me/project/.claude/settings.json)
+
+The hook refuses edits to locked paths before the tool runs and tells the
+agent why. It needs no privileges. Verify with: afl hook check <locked path>
+```
+
+Installing needs no root and only merges into whatever the file already
+contains. `--global` writes to `~/.claude/settings.json` (or
+`~/.codex/hooks.json`) instead, which covers every repository at once. Confirm
+that it took effect:
+
+```sh
+afl hook check docs/POLICY.md   # exit 2, and the refusal in plain text
+```
+
+Releasing the file again:
+
+```sh
+sudo afl unlock docs/POLICY.md
+```
+
 ## Usage
 
 ```
@@ -57,20 +120,11 @@ afl status [-R] <path>... | -f afl.yaml
 afl check  -f afl.yaml                exit 1 if anything drifted (CI / pre-commit; no root)
 afl run    -f afl.yaml -- <cmd...>    unlock, run <cmd>, then always re-lock
 afl hook                              PreToolUse guard for agents (stdin JSON, exit 2 = refused)
-afl hook install <harness>|--all      register it with claude-code / codex
+afl hook install claude|codex|--all   register the hook with an agent (no root)
 afl hook check <path>...              the same verdict from any script (no root)
-afl hook print [<harness>]            config snippet, or the generic contract
+afl hook print [claude|codex|generic] the snippet, or the contract for anything else
 afl doctor [<path>]                   OS, privileges, filesystem support, WSL detection
 afl completion bash|zsh|fish
-```
-
-```sh
-sudo afl lock docs/POLICY.md
-echo x >> docs/POLICY.md      # → Operation not permitted
-rm docs/POLICY.md             # → Operation not permitted (even with sudo, until unlocked)
-mv docs docs.old              # → Operation not permitted (the parent guard)
-touch docs/scratch.md         # → fine; guarded parents still accept new files
-sudo afl unlock docs/POLICY.md
 ```
 
 `afl status` with no arguments answers the question you actually have — what is
@@ -180,8 +234,8 @@ If the change is genuinely required, stop and ask the user to unlock it:
 ```
 
 ```sh
-afl hook install --all          # claude-code + codex, project-level
-afl hook install claude-code --global
+afl hook install --all          # claude + codex, project-level
+afl hook install claude --global
 afl hook print generic          # the contract for anything else
 afl hook uninstall --all
 ```
@@ -190,10 +244,13 @@ It needs no privileges, and it is a second line of defence, not the first: the
 kernel refuses the write either way. What the hook adds is the reason.
 
 **Which agents.** Claude Code defined this hook protocol and Codex adopted it
-unchanged, so one binary serves both, and `afl hook install` writes
-`.claude/settings.json` or `.codex/hooks.json` (merging into whatever is
-already there, and removable with `hook uninstall`). Any other harness that can
-run a command before a tool call works through the generic contract:
+unchanged, so one binary serves both. `afl hook install claude` writes
+`.claude/settings.json`, `afl hook install codex` writes `.codex/hooks.json`,
+both merging into whatever is already there and both removable with
+`hook uninstall`. Those two names are the whole list `install` takes; `generic`
+is not one of them, because there is no file to write. It is a name
+`afl hook print` accepts to show the contract below, which is what any other
+harness that can run a command before a tool call needs:
 
 | | |
 |---|---|
