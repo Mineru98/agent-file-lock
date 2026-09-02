@@ -2,6 +2,7 @@ package lock
 
 import (
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/Mineru98/agent-file-lock/internal/platform"
@@ -24,7 +25,9 @@ func (f *fakeLocker) add(p string, st platform.State) { st.Path = p; f.states[p]
 func (f *fakeLocker) Status(p string) (platform.State, error) {
 	st, ok := f.states[p]
 	if !ok {
-		return platform.State{Path: p}, errors.New("no such file")
+		// os.ErrNotExist, not a generic error: callers distinguish "missing"
+		// from "unreadable", and a real Locker reports it that way.
+		return platform.State{Path: p}, &os.PathError{Op: "stat", Path: p, Err: os.ErrNotExist}
 	}
 	return st, nil
 }
@@ -59,6 +62,29 @@ func (f *fakeLocker) Unlock(p string) error {
 }
 
 func (f *fakeLocker) Supports(string, platform.Level) (bool, string) { return true, "" }
+
+func (f *fakeLocker) Guard(p string, lvl platform.Level) error {
+	if err := f.errs[p]; err != nil {
+		return err
+	}
+	st := f.states[p]
+	st.Path, st.IsDir = p, true
+	if !f.silent[p] {
+		st.Append = true
+	}
+	f.states[p] = st
+	return nil
+}
+
+func (f *fakeLocker) Unguard(p string) error {
+	if err := f.errs[p]; err != nil {
+		return err
+	}
+	st := f.states[p]
+	st.Append = false
+	f.states[p] = st
+	return nil
+}
 
 func targets(lvl platform.Level, paths ...string) []Target {
 	out := make([]Target, len(paths))

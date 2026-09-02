@@ -54,7 +54,25 @@ func (bsdLocker) Status(path string) (State, error) {
 	st.Writable = fi.Mode().Perm()&writeBits != 0
 	st.Immutable = flags&sfImmutable != 0
 	st.UserImmutable = flags&ufImmutable != 0
+	st.Append = flags&(sfAppend|ufAppend) != 0
 	return st, nil
+}
+
+// StateFromInfo implements FastStatuser: on BSD every flag we care about is
+// already in the stat struct, so a scan needs no extra syscall.
+func (bsdLocker) StateFromInfo(path string, fi os.FileInfo) (State, bool) {
+	st := State{Path: path}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		st.IsSymlink = true
+		return st, true
+	}
+	flags := flagsOf(fi)
+	st.IsDir = fi.IsDir()
+	st.Writable = fi.Mode().Perm()&writeBits != 0
+	st.Immutable = flags&sfImmutable != 0
+	st.UserImmutable = flags&ufImmutable != 0
+	st.Append = flags&(sfAppend|ufAppend) != 0
+	return st, true
 }
 
 func (bsdLocker) Lock(path string, lvl Level) error {
@@ -110,6 +128,49 @@ func (bsdLocker) Unlock(path string) error {
 	return fchmodRestoreOwnerWrite(f, fi.Mode())
 }
 
+// Guard sets the append-only flag on a directory: entries can still be
+// created inside it, but none can be deleted or renamed, and the directory
+// itself cannot be renamed (BSD rename() rejects an append-flagged source).
+func (bsdLocker) Guard(path string, lvl Level) error {
+	f, err := openNoFollow(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	flags := flagsOf(fi)
+	bit := sfAppend
+	if lvl == LevelUser {
+		bit = ufAppend
+	}
+	if flags&bit != 0 {
+		return nil
+	}
+	return mapErr(syscall.Fchflags(int(f.Fd()), int(flags|bit)))
+}
+
+// Unguard clears both append flags and leaves the immutable ones untouched.
+func (bsdLocker) Unguard(path string) error {
+	f, err := openNoFollow(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	flags := flagsOf(fi)
+	const both = sfAppend | ufAppend
+	if flags&both == 0 {
+		return nil
+	}
+	return mapErr(syscall.Fchflags(int(f.Fd()), int(flags&^both)))
+}
+
 func (bsdLocker) Supports(path string, lvl Level) (bool, string) {
 	if lvl == LevelUser {
 		return true, ""
@@ -134,5 +195,7 @@ func IsWSL() bool { return false }
 // Flag bits from <sys/stat.h>; identical on Darwin and FreeBSD.
 const (
 	ufImmutable uint32 = 0x00000002 // UF_IMMUTABLE (uchg): owner may clear
+	ufAppend    uint32 = 0x00000004 // UF_APPEND    (uappnd): owner may clear
 	sfImmutable uint32 = 0x00020000 // SF_IMMUTABLE (schg): root only
+	sfAppend    uint32 = 0x00040000 // SF_APPEND    (sappnd): root only
 )

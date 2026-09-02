@@ -60,6 +60,17 @@ func (userLocker) Unlock(path string) error {
 	return fchmodRestoreOwnerWrite(f, fi.Mode())
 }
 
+// Guard is unavailable without inode flags: there is no way to make a
+// directory append-only, so the parent-rename bypass cannot be closed here.
+func (userLocker) Guard(path string, lvl Level) error {
+	return joinErr(ErrUnsupportedFS, errors.New(noGuardReason))
+}
+
+// Unguard is a no-op: Guard never succeeds on this platform.
+func (userLocker) Unguard(path string) error { return nil }
+
+var noGuardReason = "this platform has no append-only flag; parent directories cannot be guarded"
+
 var noStrongReason = func() string {
 	if runtime.GOOS == "linux" {
 		return "afl has no FS_IOC_SETFLAGS encoding for linux/" + runtime.GOARCH + " yet; only --level user is available"

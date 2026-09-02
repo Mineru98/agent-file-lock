@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -71,6 +72,7 @@ func (l *linuxLocker) Status(path string) (State, error) {
 		return st, err
 	}
 	st.Immutable = attr&fsImmutableFl != 0
+	st.Append = attr&fsAppendFl != 0
 	return st, nil
 }
 
@@ -121,6 +123,50 @@ func (l *linuxLocker) Unlock(path string) error {
 		return err
 	}
 	return fchmodRestoreOwnerWrite(f, fi.Mode())
+}
+
+// Guard sets FS_APPEND_FL on a directory: new entries may be created, but
+// may_delete() refuses to unlink or rename anything inside it, and renaming
+// the directory itself is refused because the victim inode is append-only.
+// Like FS_IMMUTABLE_FL it needs CAP_LINUX_IMMUTABLE, so there is no
+// user-level variant on Linux.
+func (l *linuxLocker) Guard(path string, lvl Level) error {
+	if lvl == LevelUser {
+		return joinErr(ErrUnsupportedFS, errors.New("Linux has no user-clearable append flag (FS_APPEND_FL needs CAP_LINUX_IMMUTABLE); parent guards need --level strong"))
+	}
+	f, err := openNoFollow(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	attr, err := getFlags(f.Fd())
+	if err != nil {
+		return err
+	}
+	if attr&fsAppendFl != 0 {
+		return nil
+	}
+	return setFlags(f.Fd(), attr|fsAppendFl)
+}
+
+// Unguard clears FS_APPEND_FL and leaves FS_IMMUTABLE_FL untouched.
+func (l *linuxLocker) Unguard(path string) error {
+	f, err := openNoFollow(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	attr, err := getFlags(f.Fd())
+	if err != nil {
+		if isUnsupportedErr(err) {
+			return nil
+		}
+		return err
+	}
+	if attr&fsAppendFl == 0 {
+		return nil
+	}
+	return setFlags(f.Fd(), attr&^fsAppendFl)
 }
 
 // Filesystems known to implement FS_IOC_SETFLAGS with FS_IMMUTABLE_FL.

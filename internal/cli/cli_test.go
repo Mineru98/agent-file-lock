@@ -17,15 +17,17 @@ import (
 // fakeLocker records operations against real paths (for Plan) but keeps the
 // lock state in memory so tests run without privileges.
 type fakeLocker struct {
-	strong map[string]bool
-	user   map[string]bool
-	fail   map[string]error // Lock and Unlock
-	failLk map[string]error // Lock only
-	calls  []string
+	strong  map[string]bool
+	user    map[string]bool
+	append_ map[string]bool
+	fail    map[string]error // Lock and Unlock
+	failLk  map[string]error // Lock only
+	calls   []string
 }
 
 func newFake() *fakeLocker {
-	return &fakeLocker{strong: map[string]bool{}, user: map[string]bool{}, fail: map[string]error{}, failLk: map[string]error{}}
+	return &fakeLocker{strong: map[string]bool{}, user: map[string]bool{}, append_: map[string]bool{},
+		fail: map[string]error{}, failLk: map[string]error{}}
 }
 
 func (f *fakeLocker) Status(p string) (platform.State, error) {
@@ -34,7 +36,7 @@ func (f *fakeLocker) Status(p string) (platform.State, error) {
 		return platform.State{Path: p}, err
 	}
 	return platform.State{Path: p, IsDir: fi.IsDir(), IsSymlink: fi.Mode()&os.ModeSymlink != 0,
-		Immutable: f.strong[p], Writable: !f.user[p], FSType: "fakefs"}, nil
+		Immutable: f.strong[p], Append: f.append_[p], Writable: !f.user[p], FSType: "fakefs"}, nil
 }
 func (f *fakeLocker) Lock(p string, lvl platform.Level) error {
 	f.calls = append(f.calls, "lock "+filepath.Base(p))
@@ -60,6 +62,24 @@ func (f *fakeLocker) Unlock(p string) error {
 	delete(f.user, p)
 	return nil
 }
+func (f *fakeLocker) Guard(p string, lvl platform.Level) error {
+	f.calls = append(f.calls, "guard "+filepath.Base(p))
+	if err := f.fail[p]; err != nil {
+		return err
+	}
+	f.append_[p] = true
+	return nil
+}
+
+func (f *fakeLocker) Unguard(p string) error {
+	f.calls = append(f.calls, "unguard "+filepath.Base(p))
+	if err := f.fail[p]; err != nil {
+		return err
+	}
+	delete(f.append_, p)
+	return nil
+}
+
 func (f *fakeLocker) Supports(p string, lvl platform.Level) (bool, string) {
 	if strings.Contains(p, "ninep") && lvl == platform.LevelStrong {
 		return false, "9p mount"
@@ -256,6 +276,17 @@ func TestStatusAndJSON(t *testing.T) {
 	}
 }
 
+// lastCall returns the final call with the given prefix.
+func lastCall(calls []string, prefix string) string {
+	out := ""
+	for _, c := range calls {
+		if strings.HasPrefix(c, prefix) {
+			out = c
+		}
+	}
+	return out
+}
+
 func TestPartialFailureAndOrder(t *testing.T) {
 	h := newHarness(t)
 	h.root = true
@@ -264,8 +295,9 @@ func TestPartialFailureAndOrder(t *testing.T) {
 	if c != lock.ExitPartial || !strings.Contains(h.stderr.String(), "disk on fire") {
 		t.Errorf("partial: %d %s", c, h.stderr.String())
 	}
-	// post-order: the docs directory itself must be last
-	if last := h.fake.calls[len(h.fake.calls)-1]; last != "lock docs" {
+	// post-order: the docs directory itself must be the last lock (parent
+	// guards are applied afterwards, on purpose)
+	if last := lastCall(h.fake.calls, "lock "); last != "lock docs" {
 		t.Errorf("lock order: %v", h.fake.calls)
 	}
 	h.fake.calls = nil

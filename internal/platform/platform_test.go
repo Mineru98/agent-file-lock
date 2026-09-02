@@ -168,3 +168,124 @@ func TestStrongLevelRoundTrip(t *testing.T) {
 		t.Fatal("not writable after unlock")
 	}
 }
+
+// TestUserGuardRoundTrip proves the property the whole guard rests on: an
+// append-only directory still accepts new entries, refuses to give up the ones
+// it has, and refuses to be renamed itself — which is what closes the
+// "rename the parent and recreate the path" bypass.
+//
+// It runs at LevelUser (uappnd on BSD/macOS), so it needs no privileges there.
+// Linux has no user-clearable append flag, so the strong variant covers it.
+func TestUserGuardRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "docs")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	kept := filepath.Join(sub, "kept.md")
+	if err := os.WriteFile(kept, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l := New()
+	if err := l.Guard(sub, LevelUser); err != nil {
+		if errors.Is(err, ErrUnsupportedFS) || errors.Is(err, ErrPermission) {
+			t.Skip("user-level guard unavailable here: " + err.Error())
+		}
+		t.Fatalf("guard: %v", err)
+	}
+	t.Cleanup(func() { _ = l.Unguard(sub) })
+
+	st, err := l.Status(sub)
+	if err != nil || !st.Append {
+		t.Fatalf("after guard: %+v err=%v", st, err)
+	}
+	if IsRoot() {
+		t.Skip("root bypasses the user-level flag; see TestStrongGuardRoundTrip")
+	}
+	if err := os.WriteFile(filepath.Join(sub, "new.md"), []byte("y"), 0o644); err != nil {
+		t.Errorf("an append-only directory must still accept new files: %v", err)
+	}
+	if err := os.Remove(kept); err == nil {
+		t.Error("append-only directory allowed a delete")
+	}
+	if err := os.Rename(kept, kept+".x"); err == nil {
+		t.Error("append-only directory allowed a rename of its entry")
+	}
+	if err := os.Rename(sub, sub+".locked"); err == nil {
+		t.Error("append-only directory allowed itself to be renamed — the bypass is open")
+		_ = os.Rename(sub+".locked", sub)
+	}
+	// idempotent, and unguard puts everything back
+	if err := l.Guard(sub, LevelUser); err != nil {
+		t.Errorf("second guard: %v", err)
+	}
+	if err := l.Unguard(sub); err != nil {
+		t.Fatalf("unguard: %v", err)
+	}
+	if st, _ := l.Status(sub); st.Append {
+		t.Fatal("still append-only after unguard")
+	}
+	if err := os.Remove(kept); err != nil {
+		t.Errorf("delete should work again after unguard: %v", err)
+	}
+	if err := l.Unguard(sub); err != nil {
+		t.Errorf("second unguard: %v", err)
+	}
+}
+
+// TestStrongGuardRoundTrip is the privileged proof: sappnd / chattr +a, the
+// flags an agent running as the user cannot clear.
+func TestStrongGuardRoundTrip(t *testing.T) {
+	if testing.Short() {
+		t.Skip("-short")
+	}
+	if ok, why := StrongPrivilege(); !ok {
+		t.Skip("strong privilege unavailable: " + why)
+	}
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "docs")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	l := New()
+	if ok, why := l.Supports(sub, LevelStrong); !ok {
+		t.Skip("fs unsupported: " + why)
+	}
+	locked := filepath.Join(sub, "SSOT.md")
+	if err := os.WriteFile(locked, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Lock(locked, LevelStrong); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	t.Cleanup(func() { _ = l.Unguard(sub); _ = l.Unlock(locked) })
+	if err := l.Guard(sub, LevelStrong); err != nil {
+		t.Fatalf("guard: %v", err)
+	}
+	st, err := l.Status(sub)
+	if err != nil || !st.Append {
+		t.Fatalf("after guard: %+v err=%v", st, err)
+	}
+	// Even as root: this is the case that matters, because the agent's own
+	// `sudo mv` is what the user is defending against.
+	if err := os.Rename(sub, sub+".locked"); err == nil {
+		t.Error("root renamed an append-only directory — the bypass is open")
+		_ = os.Rename(sub+".locked", sub)
+	}
+	if err := os.Remove(locked); err == nil {
+		t.Error("root removed a file from an append-only directory")
+	}
+	if err := os.WriteFile(filepath.Join(sub, "new.md"), []byte("y"), 0o644); err != nil {
+		t.Errorf("new files must still be allowed: %v", err)
+	}
+	// The lock itself survives the guard being applied and released.
+	if err := l.Unguard(sub); err != nil {
+		t.Fatalf("unguard: %v", err)
+	}
+	if st, _ := l.Status(locked); !st.Immutable {
+		t.Error("unguard cleared the file's immutable flag")
+	}
+	if st, _ := l.Status(sub); st.Append {
+		t.Fatal("still append-only after unguard")
+	}
+}

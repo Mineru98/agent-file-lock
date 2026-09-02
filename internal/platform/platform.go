@@ -50,6 +50,7 @@ type State struct {
 	Path          string `json:"path"`
 	Immutable     bool   `json:"immutable"`               // strong flag present (chattr +i / schg)
 	UserImmutable bool   `json:"user_immutable"`          // BSD/macOS uchg; always false on Linux
+	Append        bool   `json:"append,omitempty"`        // append-only guard (chattr +a / sappnd|uappnd)
 	Writable      bool   `json:"writable"`                // any write bit set in the mode
 	FlagsUnknown  bool   `json:"flags_unknown,omitempty"` // inode flags could not be read (e.g. unreadable file, non-root)
 	IsDir         bool   `json:"is_dir"`
@@ -67,6 +68,9 @@ func (s State) LockedAt(lvl Level) bool {
 	}
 	return false
 }
+
+// Guarded reports whether the state carries an append-only guard.
+func (s State) Guarded() bool { return s.Append }
 
 // Level returns the strongest level the state currently satisfies, or 0.
 func (s State) Level() Level {
@@ -90,6 +94,22 @@ type Locker interface {
 	// Supports reports whether the filesystem holding path can hold lvl.
 	// It is a best-effort pre-check; the definitive answer comes from Lock.
 	Supports(path string, lvl Level) (ok bool, reason string)
+	// Guard makes a directory append-only: new entries may still be created,
+	// but existing ones cannot be deleted or renamed, and the directory
+	// itself cannot be renamed. That is what stops the classic bypass of
+	// moving a parent directory aside and recreating the path.
+	Guard(path string, lvl Level) error
+	// Unguard removes the append-only flags set by Guard. Immutable flags are
+	// left alone.
+	Unguard(path string) error
+}
+
+// FastStatuser is an optional Locker capability: deriving the lock state from
+// an os.FileInfo that the caller already has, with no further syscalls. BSD
+// keeps the flags in struct stat, so a recursive scan there costs one lstat
+// per entry; Linux needs an ioctl on an open fd and does not implement it.
+type FastStatuser interface {
+	StateFromInfo(path string, fi os.FileInfo) (State, bool)
 }
 
 // Sentinel errors. Callers use errors.Is to map them to exit codes.
