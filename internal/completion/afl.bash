@@ -18,16 +18,30 @@ _afl() {
       return 0 ;;
     --exclude)
       return 0 ;;
+    --guard-root)
+      COMPREPLY=( $(compgen -d -- "$cur") )
+      return 0 ;;
+    --format)
+      COMPREPLY=( $(compgen -W "auto json exit-code" -- "$cur") )
+      return 0 ;;
+    hook)
+      COMPREPLY=( $(compgen -W "install uninstall print check" -- "$cur") )
+      return 0 ;;
+    install|uninstall|print)
+      if [ "${COMP_WORDS[1]}" = "hook" ]; then
+        COMPREPLY=( $(compgen -W "claude-code codex generic --all --global" -- "$cur") )
+        return 0
+      fi ;;
   esac
 
   if [ "$COMP_CWORD" -eq 1 ]; then
-    COMPREPLY=( $(compgen -W "lock unlock status check run doctor completion version help" -- "$cur") )
+    COMPREPLY=( $(compgen -W "lock unlock status check run hook doctor completion version help" -- "$cur") )
     return 0
   fi
 
   case "$cur" in
     -*)
-      COMPREPLY=( $(compgen -W "-f --config -R --recursive -n --dry-run --level --include-dirs --dir-only --exclude --follow-symlinks --fail-fast --json -q --quiet --elevate --as-root -h --help -v --version" -- "$cur") )
+      COMPREPLY=( $(compgen -W "-f --config -R --recursive -n --dry-run --level --include-dirs --dir-only --exclude --follow-symlinks --fail-fast --json -q --quiet --elevate --as-root --guard-parents --no-guard-parents --guard-root -a --all --depth --format --strict -h --help -v --version" -- "$cur") )
       return 0 ;;
   esac
   # fall through to default path completion (-o default)

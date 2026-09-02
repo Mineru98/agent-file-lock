@@ -10,6 +10,7 @@ _afl() {
     'status:Show lock state'
     'check:Compare config against actual state (exit 1 on drift)'
     'run:Unlock, run a command, then re-lock'
+    'hook:Refuse an agent edit to a locked path and explain why'
     'doctor:Diagnose platform, privileges and filesystem support'
     'completion:Print shell completion script'
     'version:Print version'
@@ -30,6 +31,9 @@ _afl() {
     '--json[machine-readable output]'
     '(-q --quiet)'{-q,--quiet}'[only print failures]'
     '--elevate[re-exec via sudo when not root]'
+    '--guard-parents[make ancestor directories append-only (default)]'
+    '--no-guard-parents[leave ancestor directories alone]'
+    '--guard-root[how far up the guard walks]:dir:_files -/'
     '(-h --help)'{-h,--help}'[show help]'
   )
 
@@ -41,7 +45,17 @@ _afl() {
     cmd) _describe -t commands 'afl command' commands ;;
     args)
       case "${words[1]}" in
-        lock|unlock|status|check) _arguments "${common[@]}" '*:path:_files' ;;
+        lock|unlock|check) _arguments "${common[@]}" '*:path:_files' ;;
+        status) _arguments "${common[@]}" \
+          '(-a --all)'{-a,--all}'[do not skip build directories]' \
+          '--depth[limit scan depth]:depth:' '*:path:_files' ;;
+        hook)
+          _arguments \
+            '1:subcommand:((install\:"register the hook with a harness" uninstall\:"remove it" print\:"show the config snippet" check\:"verdict for a path"))' \
+            '--format[response dialect]:format:(auto json exit-code)' \
+            '--strict[deny unclassifiable commands naming a locked path]' \
+            '--all[every known harness]' '--global[user-level config]' \
+            '*:path:_files' ;;
         run) _arguments "${common[@]}" '--as-root[keep root for the command]' '*::command:_normal' ;;
         doctor) _arguments '--json[machine-readable output]' '*:path:_files' ;;
         completion) _arguments '1:shell:(bash zsh fish)' ;;
