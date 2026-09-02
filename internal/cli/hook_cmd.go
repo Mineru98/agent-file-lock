@@ -179,7 +179,7 @@ func (e *env) cmdHookPrint(args []string) int {
 	}
 	h, ok := hook.FindHarness(name)
 	if !ok {
-		return e.usageErr("unknown harness %q (known: %s)", name, strings.Join(hook.HarnessNames(), ", "))
+		return e.usageErr("unknown harness %q (known: %s)", name, strings.Join(hook.PrintNames(), ", "))
 	}
 	fmt.Fprintf(e.stdout, "# %s — %s (project) or ~/%s (user)\n%s", h.Name, h.Project, h.Global, hook.Snippet(h))
 	if h.TOMLSnippet != "" {

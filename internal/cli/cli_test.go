@@ -667,7 +667,7 @@ func TestHookInstallWritesHarnessConfig(t *testing.T) {
 	cwd, _ := os.Getwd()
 	t.Cleanup(func() { os.Chdir(cwd) })
 	os.Chdir(h.dir)
-	if c := h.run("hook", "install", "claude-code"); c != lock.ExitOK {
+	if c := h.run("hook", "install", "claude"); c != lock.ExitOK {
 		t.Fatalf("install: %d %s", c, h.stderr.String())
 	}
 	b, err := os.ReadFile(filepath.Join(h.dir, ".claude", "settings.json"))
@@ -680,7 +680,15 @@ func TestHookInstallWritesHarnessConfig(t *testing.T) {
 	if c := h.run("hook", "install", "nope"); c != lock.ExitUsage {
 		t.Errorf("unknown harness should be a usage error: %d", c)
 	}
-	if c := h.run("hook", "uninstall", "claude-code"); c != lock.ExitOK {
+	// "generic" is documentation, not a config file: install must refuse it
+	// and name only the harnesses it can write to.
+	if c := h.run("hook", "install", "generic"); c != lock.ExitUsage {
+		t.Errorf("generic is not installable: %d", c)
+	}
+	if e := h.stderr.String(); strings.Contains(e, "generic") && !strings.Contains(e, `"generic"`) {
+		t.Errorf("generic offered as an install target: %s", e)
+	}
+	if c := h.run("hook", "uninstall", "claude"); c != lock.ExitOK {
 		t.Fatalf("uninstall: %d %s", c, h.stderr.String())
 	}
 	b, _ = os.ReadFile(filepath.Join(h.dir, ".claude", "settings.json"))

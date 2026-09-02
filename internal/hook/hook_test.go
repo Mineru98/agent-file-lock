@@ -277,6 +277,18 @@ func TestTokenizer(t *testing.T) {
 	}
 }
 
+func TestFindHarnessAcceptsTheOldClaudeCodeName(t *testing.T) {
+	h, ok := FindHarness("claude-code")
+	if !ok || h.Name != "claude" {
+		t.Fatalf("claude-code alias: %v %+v", ok, h)
+	}
+	for _, n := range HarnessNames() {
+		if n == "generic" {
+			t.Error("generic must not be offered as an install target")
+		}
+	}
+}
+
 func TestInstallIsIdempotentAndReversible(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".claude", "settings.json")
@@ -287,7 +299,7 @@ func TestInstallIsIdempotentAndReversible(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"model":"opus","hooks":{"PostToolUse":[{"matcher":"Bash"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	h, _ := FindHarness("claude-code")
+	h, _ := FindHarness("claude")
 	changed, err := Install(path, h)
 	if err != nil || !changed {
 		t.Fatalf("install: %v %v", changed, err)
@@ -327,7 +339,7 @@ func TestInstallRefusesBrokenJSON(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 	os.WriteFile(path, []byte("{not json"), 0o644)
-	h, _ := FindHarness("claude-code")
+	h, _ := FindHarness("claude")
 	if _, err := Install(path, h); err == nil {
 		t.Error("expected an error rather than an overwrite")
 	}

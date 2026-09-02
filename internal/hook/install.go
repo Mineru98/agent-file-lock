@@ -14,6 +14,7 @@ import (
 // entries differ only in location and in which tools fire PreToolUse.
 type Harness struct {
 	Name        string
+	Aliases     []string // accepted on the command line, not advertised
 	Project     string // config path relative to the project root
 	Global      string // config path relative to $HOME
 	Matcher     string // regex over tool names
@@ -25,7 +26,8 @@ type Harness struct {
 // `afl hook print generic`, which explains the exit-code contract.
 var Harnesses = []Harness{
 	{
-		Name:    "claude-code",
+		Name:    "claude",
+		Aliases: []string{"claude-code"},
 		Project: ".claude/settings.json",
 		Global:  ".claude/settings.json",
 		Matcher: "Edit|Write|MultiEdit|NotebookEdit|Bash",
@@ -48,25 +50,36 @@ statusMessage = "Checking agent-file-lock"
 	},
 }
 
-// FindHarness looks up a harness by name.
+// FindHarness looks up a harness by name or by one of its older aliases.
 func FindHarness(name string) (Harness, bool) {
 	for _, h := range Harnesses {
 		if strings.EqualFold(h.Name, name) {
 			return h, true
 		}
+		for _, alias := range h.Aliases {
+			if strings.EqualFold(alias, name) {
+				return h, true
+			}
+		}
 	}
 	return Harness{}, false
 }
 
-// HarnessNames lists the built-in harnesses.
+// HarnessNames lists the harnesses `hook install` can actually write to.
 func HarnessNames() []string {
-	out := make([]string, 0, len(Harnesses)+1)
+	out := make([]string, 0, len(Harnesses))
 	for _, h := range Harnesses {
 		out = append(out, h.Name)
 	}
-	out = append(out, "generic")
 	sort.Strings(out)
 	return out
+}
+
+// PrintNames adds "generic" to the installable harnesses: `hook print`
+// accepts it because the contract is documentation, but there is no file for
+// `hook install` to write, so it is not offered there.
+func PrintNames() []string {
+	return append(HarnessNames(), "generic")
 }
 
 // Command is the hook command line written into a config file.

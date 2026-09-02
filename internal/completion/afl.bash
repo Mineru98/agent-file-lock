@@ -27,9 +27,14 @@ _afl() {
     hook)
       COMPREPLY=( $(compgen -W "install uninstall print check" -- "$cur") )
       return 0 ;;
-    install|uninstall|print)
+    install|uninstall)
       if [ "${COMP_WORDS[1]}" = "hook" ]; then
-        COMPREPLY=( $(compgen -W "claude-code codex generic --all --global" -- "$cur") )
+        COMPREPLY=( $(compgen -W "claude codex --all --global" -- "$cur") )
+        return 0
+      fi ;;
+    print)
+      if [ "${COMP_WORDS[1]}" = "hook" ]; then
+        COMPREPLY=( $(compgen -W "claude codex generic" -- "$cur") )
         return 0
       fi ;;
   esac
