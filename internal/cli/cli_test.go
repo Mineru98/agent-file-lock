@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Mineru98/agent-file-lock/internal/lock"
+	"github.com/Mineru98/agent-file-lock/internal/notice"
 	"github.com/Mineru98/agent-file-lock/internal/platform"
 )
 
@@ -596,5 +597,154 @@ func TestBareStatusJSON(t *testing.T) {
 	}
 	if len(res.Locked) != 1 || res.Locked[0].Rel != "README.md" {
 		t.Errorf("scan result: %+v", res)
+	}
+}
+
+// --- hook -------------------------------------------------------------------
+
+func (h *harness) runStdin(stdin string, args ...string) int {
+	h.stdout.Reset()
+	h.stderr.Reset()
+	for i, a := range args {
+		if strings.HasPrefix(a, "@") {
+			args[i] = filepath.Join(h.dir, a[1:])
+		}
+	}
+	return RunWith(args, &h.stdout, &h.stderr, Deps{
+		Locker:   h.fake,
+		IsRoot:   func() bool { return h.root },
+		StrongOK: func() (bool, string) { return h.root, "need root" },
+		Stdin:    strings.NewReader(stdin),
+	})
+}
+
+func TestHookRefusesLockedPathAndExplains(t *testing.T) {
+	h := newHarness(t)
+	h.fake.strong[h.p("docs/POLICY.md")] = true
+	payload := `{"hook_event_name":"PreToolUse","tool_name":"Edit","cwd":"` + h.dir +
+		`","tool_input":{"file_path":"docs/POLICY.md"}}`
+	if c := h.runStdin(payload, "hook"); c != 2 {
+		t.Fatalf("hook exit = %d, want 2 (%s)", c, h.stderr.String())
+	}
+	if !strings.Contains(h.stderr.String(), notice.Headline) {
+		t.Errorf("stderr missing the notice: %s", h.stderr.String())
+	}
+	var payloadOut map[string]any
+	if err := json.Unmarshal(h.stdout.Bytes(), &payloadOut); err != nil {
+		t.Fatalf("stdout is not JSON: %v (%s)", err, h.stdout.String())
+	}
+	hso := payloadOut["hookSpecificOutput"].(map[string]any)
+	if hso["permissionDecision"] != "deny" {
+		t.Errorf("decision: %v", payloadOut)
+	}
+	// an untouched file is allowed, silently
+	ok := `{"hook_event_name":"PreToolUse","tool_name":"Edit","cwd":"` + h.dir +
+		`","tool_input":{"file_path":"README.md"}}`
+	if c := h.runStdin(ok, "hook"); c != 0 || h.stdout.Len() != 0 || h.stderr.Len() != 0 {
+		t.Errorf("allow should be silent: %d %q %q", c, h.stdout.String(), h.stderr.String())
+	}
+}
+
+func TestHookCheckIsQuietOnStdout(t *testing.T) {
+	h := newHarness(t)
+	h.fake.strong[h.p("docs/POLICY.md")] = true
+	if c := h.run("hook", "check", "@docs/POLICY.md"); c != 2 {
+		t.Fatalf("hook check exit = %d, want 2", c)
+	}
+	if h.stdout.Len() != 0 {
+		t.Errorf("hook check should keep stdout clean: %s", h.stdout.String())
+	}
+	if !strings.Contains(h.stderr.String(), notice.Headline) {
+		t.Errorf("stderr: %s", h.stderr.String())
+	}
+	if c := h.run("hook", "check", "@README.md"); c != 0 {
+		t.Errorf("free path: %d %s", c, h.stderr.String())
+	}
+}
+
+func TestHookInstallWritesHarnessConfig(t *testing.T) {
+	h := newHarness(t)
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(cwd) })
+	os.Chdir(h.dir)
+	if c := h.run("hook", "install", "claude-code"); c != lock.ExitOK {
+		t.Fatalf("install: %d %s", c, h.stderr.String())
+	}
+	b, err := os.ReadFile(filepath.Join(h.dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"afl hook"`) {
+		t.Errorf("settings: %s", b)
+	}
+	if c := h.run("hook", "install", "nope"); c != lock.ExitUsage {
+		t.Errorf("unknown harness should be a usage error: %d", c)
+	}
+	if c := h.run("hook", "uninstall", "claude-code"); c != lock.ExitOK {
+		t.Fatalf("uninstall: %d %s", c, h.stderr.String())
+	}
+	b, _ = os.ReadFile(filepath.Join(h.dir, ".claude", "settings.json"))
+	if strings.Contains(string(b), "afl hook") {
+		t.Errorf("hook survived uninstall: %s", b)
+	}
+}
+
+func TestHookPrintCoversUnknownHarnesses(t *testing.T) {
+	h := newHarness(t)
+	if c := h.run("hook", "print"); c != lock.ExitOK {
+		t.Fatalf("print: %d %s", c, h.stderr.String())
+	}
+	out := h.stdout.String()
+	for _, want := range []string{"exit:", "0 = allow, 2 = deny", notice.Headline} {
+		if !strings.Contains(out, want) {
+			t.Errorf("generic contract missing %q:\n%s", want, out)
+		}
+	}
+	if c := h.run("hook", "print", "codex"); c != lock.ExitOK || !strings.Contains(h.stdout.String(), "PreToolUse") {
+		t.Errorf("codex snippet: %d %s", c, h.stdout.String())
+	}
+}
+
+// afl run must take the parent guards down with the locks: git replaces a
+// tracked file by renaming a temporary over it, which an append-only parent
+// refuses even when the file itself is unlocked.
+func TestRunReleasesAndRestoresGuards(t *testing.T) {
+	h := newHarness(t)
+	h.root = true
+	if c := h.run("lock", "--guard-root", "@.", "-f", "@afl.yaml"); c != lock.ExitOK {
+		t.Fatalf("lock: %d %s", c, h.stderr.String())
+	}
+	var duringUnlocked, duringGuarded int
+	h.stdout.Reset()
+	h.stderr.Reset()
+	code := RunWith([]string{"run", "--guard-root", h.dir, "-f", h.p("afl.yaml"), "--", "git", "pull"},
+		&h.stdout, &h.stderr, Deps{
+			Locker:   h.fake,
+			IsRoot:   func() bool { return true },
+			StrongOK: func() (bool, string) { return true, "" },
+			Run: func(argv []string, _ *Credential) (int, error) {
+				// snapshot what the command would see
+				duringUnlocked = len(h.fake.strong)
+				duringGuarded = len(h.fake.append_)
+				return 0, nil
+			},
+		})
+	if code != lock.ExitOK {
+		t.Fatalf("run: %d %s", code, h.stderr.String())
+	}
+	if duringUnlocked != 0 {
+		t.Errorf("%d files still locked while the command ran", duringUnlocked)
+	}
+	if duringGuarded != 0 {
+		t.Errorf("%d parents still append-only while the command ran", duringGuarded)
+	}
+	if !h.fake.append_[h.p("docs")] || !h.fake.append_[h.p("")] {
+		t.Errorf("guards not restored afterwards: %v", h.fake.append_)
+	}
+	if !h.fake.strong[h.p("docs/POLICY.md")] {
+		t.Error("locks not restored afterwards")
+	}
+	if !strings.Contains(h.stdout.String(), "released") {
+		t.Errorf("run should say what it released: %s", h.stdout.String())
 	}
 }

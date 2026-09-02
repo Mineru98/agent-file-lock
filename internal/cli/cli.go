@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/Mineru98/agent-file-lock/internal/lock"
@@ -22,10 +23,12 @@ type Deps struct {
 	IsRoot   func() bool
 	Elevate  func(args []string) error // re-exec through sudo; returns only on failure
 	Run      RunCommand                // executes the `afl run` child
+	Stdin    io.Reader                 // hook payload source (defaults to os.Stdin)
 }
 
 type env struct {
 	stdout, stderr io.Writer
+	stdin          io.Reader
 	deps           Deps
 }
 
@@ -51,7 +54,10 @@ func RunWith(args []string, stdout, stderr io.Writer, d Deps) int {
 	if d.Run == nil {
 		d.Run = runCommand
 	}
-	e := &env{stdout: stdout, stderr: stderr, deps: d}
+	if d.Stdin == nil {
+		d.Stdin = os.Stdin
+	}
+	e := &env{stdout: stdout, stderr: stderr, stdin: d.Stdin, deps: d}
 	if len(args) == 0 {
 		e.usageTo(stderr)
 		return lock.ExitUsage
@@ -68,6 +74,8 @@ func RunWith(args []string, stdout, stderr io.Writer, d Deps) int {
 		return e.cmdCheck(rest)
 	case "run":
 		return e.cmdRun(rest)
+	case "hook", "guard":
+		return e.cmdHook(rest)
 	case "doctor":
 		return e.cmdDoctor(rest)
 	case "completion":
@@ -97,6 +105,10 @@ Usage:
   afl check  -f <config>              exit 1 if any protected path is not locked (CI / pre-commit)
   afl run    -f <config> -- <cmd...>  unlock, run <cmd>, then always re-lock (e.g. -- git pull)
   afl doctor [--json] [<path>]        diagnose OS, privileges, filesystem support
+  afl hook                            PreToolUse guard: refuse an agent's edit and say why
+  afl hook install <harness>|--all    register the hook (claude-code, codex)
+  afl hook check <path>...            same verdict from any harness or script (exit 2 = refused)
+  afl hook print [<harness>]          config snippet, or the generic contract
   afl completion bash|zsh|fish        print shell completion script
   afl version
 
