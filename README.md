@@ -7,12 +7,27 @@ never modify. It uses the kernel's **immutable flag** — `chattr +i` on Linux,
 deleted or renamed, which defeats the "write to temp file then rename" trick
 editors and agents use.
 
+It also closes the way *around* the lock. A locked file whose parent directory
+can be renamed is not really protected: `mv docs docs.locked && mkdir docs`
+leaves the immutable inode untouched and makes the path resolve to a fresh,
+writable file. So `afl lock` also marks every parent directory up to the
+project root **append-only** — new files may still be created there, but
+nothing existing can be deleted or renamed, including the directories
+themselves. See [Parent guards](#parent-guards).
+
+And it explains itself. The kernel can only answer `EPERM`; an agent that reads
+"Operation not permitted" learns that a write failed, not that a human decided
+it must not happen — which is how the workaround above gets invented. `afl
+hook` runs before the tool call and refuses it in words. See
+[Telling the agent](#telling-the-agent-why).
+
 Single static Go binary. No runtime dependencies (stdlib only).
 
 | Level | Mechanism | Same user can undo? | Blocks delete/rename? |
 |---|---|---|---|
 | `strong` (default) | Linux `FS_IMMUTABLE_FL`, macOS `SF_IMMUTABLE` | **No** (root only) | **Yes** |
 | `user` | `chmod a-w` (+ macOS `UF_IMMUTABLE`) | Yes | No (Linux) / Yes (macOS) |
+| parent guard | Linux `FS_APPEND_FL`, macOS `SF_APPEND` | **No** (root only) | **Yes** (adds are still allowed) |
 
 ## Install
 
@@ -33,13 +48,18 @@ attached to every [release](https://github.com/Mineru98/agent-file-lock/releases
 ## Usage
 
 ```
-afl lock   <path>...                  lock files (needs sudo for strong)
+afl lock   <path>...                  lock files + guard their parents (needs sudo for strong)
 afl lock   -R <dir>                   every regular file beneath <dir>
 afl lock   -f afl.yaml                everything listed in the config
 afl unlock <path>... | -R <dir> | -f afl.yaml
+afl status                            no path: scan this tree and list what is locked
 afl status [-R] <path>... | -f afl.yaml
 afl check  -f afl.yaml                exit 1 if anything drifted (CI / pre-commit; no root)
 afl run    -f afl.yaml -- <cmd...>    unlock, run <cmd>, then always re-lock
+afl hook                              PreToolUse guard for agents (stdin JSON, exit 2 = refused)
+afl hook install <harness>|--all      register it with claude-code / codex
+afl hook check <path>...              the same verdict from any script (no root)
+afl hook print [<harness>]            config snippet, or the generic contract
 afl doctor [<path>]                   OS, privileges, filesystem support, WSL detection
 afl completion bash|zsh|fish
 ```
@@ -48,13 +68,33 @@ afl completion bash|zsh|fish
 sudo afl lock docs/POLICY.md
 echo x >> docs/POLICY.md      # → Operation not permitted
 rm docs/POLICY.md             # → Operation not permitted (even with sudo, until unlocked)
+mv docs docs.old              # → Operation not permitted (the parent guard)
+touch docs/scratch.md         # → fine; guarded parents still accept new files
 sudo afl unlock docs/POLICY.md
+```
+
+`afl status` with no arguments answers the question you actually have — what is
+locked around here? — by scanning the tree from the working directory. It reads
+only, so it needs no privileges, and it walks past `.git`, `node_modules` and
+the other directories that make a repository large but never hold a lock (`-a`
+includes them, `--depth <n>` bounds the walk).
+
+```
+$ afl status
+strong    docs/POLICY.md
+guard     .
+guard     docs/
+
+1 locked, 2 guarded parents (412 files, 37 directories scanned under /home/me/project)
+an agent is refused with: "The user has NOT authorized this agent to modify this file."
+details: afl status <path>   ·   the full refusal: afl hook check <path>
 ```
 
 Flags: `-f/--config`, `-R/--recursive`, `--include-dirs`, `--dir-only`,
 `--level strong|user`, `--exclude <glob>` (repeatable, `**` supported),
 `--follow-symlinks`, `-n/--dry-run`, `--fail-fast`, `--json`, `-q/--quiet`,
-`--elevate` (re-exec via sudo).
+`--elevate` (re-exec via sudo), `--no-guard-parents`, `--guard-root <dir>`,
+and for `status`: `-a/--all`, `--depth <n>`.
 
 Rules worth knowing:
 
@@ -65,9 +105,118 @@ Rules worth knowing:
 - Already-locked / already-unlocked targets are no-ops (exit 0).
 - If every requested entry had to be skipped (for example a protected file was replaced by a symlink), `lock` exits 1 and `check` reports drift instead of a hollow success.
 - `unlock` after a `user`-level lock restores `u+w` only; group/other write bits removed by the lock are not restored (afl keeps no record of the original mode).
-- All mutations go through a file descriptor opened with `O_NOFOLLOW`, so the final path component cannot be swapped for a symlink between inspection and change. Parent directories are still resolved by name; keep protected trees inside directories the agent cannot rename.
+- All mutations go through a file descriptor opened with `O_NOFOLLOW`, so the final path component cannot be swapped for a symlink between inspection and change.
 
 Exit codes: `0` ok · `1` partial failure or `check` drift · `2` usage · `3` insufficient privileges · `4` unsupported filesystem.
+
+## Parent guards
+
+Locking `docs/SSOT.md` and stopping there protects an *inode*, not a *path*.
+The directory above it can be renamed, and a new `docs/SSOT.md` created in its
+place — the lock is still intact, and completely irrelevant.
+
+So `afl lock` walks up from each locked file and sets the **append-only** flag
+(`chattr +a` on Linux, `chflags sappnd` on macOS) on every directory up to the
+project root. The kernel then refuses, for those directories:
+
+- deleting or renaming anything already inside them (`may_delete()` on Linux,
+  `ufs_rename()` on BSD both check the flag), and
+- renaming the directory itself, because the victim inode is append-only.
+
+Creating new entries is still allowed, which is what makes this usable: the
+agent can add files anywhere, it just cannot make an existing one disappear.
+Like the immutable flag, clearing it needs root.
+
+```
+project/            ← append-only        mv project elsewhere   → refused
+├── docs/           ← append-only        mv docs docs.old       → refused
+│   └── SSOT.md     ← immutable          write / rm / mv        → refused
+└── src/            (untouched)          anything               → fine
+```
+
+- The boundary is the directory holding `-f <config>`, else the git worktree
+  root, else the target's own parent. `--guard-root <dir>` overrides it;
+  `/`, `$HOME` and top-level directories are refused.
+- `--no-guard-parents` turns it off and reopens the bypass.
+- `afl unlock` releases a guard only once nothing beneath it is locked any
+  more, so unlocking one file never disarms its siblings' protection.
+- The cost is real and worth knowing: while a guard is up, *no* entry in those
+  directories can be deleted or renamed. `rm -rf project` fails, and a `git
+  checkout` that replaces a top-level file via temp-file-plus-rename fails too.
+  `sudo afl run -f afl.yaml -- git pull` handles that (it releases the guards
+  for the duration of the command), and `--guard-root` narrows the blast
+  radius.
+- Linux has no user-clearable append flag, so `--level user` guards parents on
+  macOS/BSD only; there it is reported and skipped.
+
+## Telling the agent why
+
+An agent that gets `EPERM` from its edit tool has been told a write failed. It
+has not been told that a person decided it must not happen, and the difference
+is what separates "report the obstacle" from "find a way around the obstacle".
+
+`afl hook` is a PreToolUse guard: it reads the tool call before it runs, and
+refuses the ones that would modify, move or delete a locked path with a message
+that says who forbade it and what to do instead.
+
+```
+$ afl hook check docs/SSOT.md
+BLOCKED by agent-file-lock (afl)
+
+The user has NOT authorized this agent to modify this file.
+
+  docs/SSOT.md — locked by the user (level: strong, attempted: modify)
+
+These paths are locked at the kernel level (macOS schg / Linux chattr +i)
+and their parent directories are append-only, so the usual workarounds are
+closed too and are treated as a violation of the user's instruction:
+  - renaming or replacing a parent directory to recreate the path
+  - writing the content to a different path and calling it done
+  - clearing the flag with chflags / chattr / sudo
+
+If the change is genuinely required, stop and ask the user to unlock it:
+  sudo afl --help        # then, once the user agrees:
+  sudo afl unlock <path>
+```
+
+```sh
+afl hook install --all          # claude-code + codex, project-level
+afl hook install claude-code --global
+afl hook print generic          # the contract for anything else
+afl hook uninstall --all
+```
+
+It needs no privileges, and it is a second line of defence, not the first: the
+kernel refuses the write either way. What the hook adds is the reason.
+
+**Which agents.** Claude Code defined this hook protocol and Codex adopted it
+unchanged, so one binary serves both, and `afl hook install` writes
+`.claude/settings.json` or `.codex/hooks.json` (merging into whatever is
+already there, and removable with `hook uninstall`). Any other harness that can
+run a command before a tool call works through the generic contract:
+
+| | |
+|---|---|
+| command | `afl hook [--format auto\|json\|exit-code] [--strict] [<path>...]` |
+| stdin | the tool call as JSON — optional |
+| exit | `0` allow, `2` deny; nothing is printed when allowed |
+| stderr | on deny, the reason as plain text |
+| stdout | on deny, a JSON object carrying the reason under `hookSpecificOutput.permissionDecision`, `decision`/`reason` and `systemMessage` at once, so several protocols are satisfied by one response |
+
+Use `--format json` if the harness treats a non-zero exit as a broken hook, and
+`--format exit-code` if it only reads the exit status. Paths may be passed as
+arguments when the harness cannot pipe JSON — which is also what
+`afl hook check` is, and what makes it usable from a git pre-commit hook.
+
+**What it looks at.** `tool_name`, `tool_input` and `cwd`, plus, anywhere in the
+payload: keys like `file_path` / `path` / `target_file` / `source` /
+`destination`, any `command` string (tokenised as a shell command line, so
+`mv`, `rm`, `cp`, `tee`, `sed -i`, `git checkout`, redirections and
+`sudo chflags` are all recognised), and any patch or unified-diff body
+(`*** Update File:`, `+++ b/...`). Read-only tools and commands are allowed
+without comment. A command it cannot classify is left to the kernel unless you
+pass `--strict`, and an unparsable payload never blocks — a hook that fails
+closed on malformed input would make the harness unusable.
 
 ## Config file
 
@@ -101,8 +250,8 @@ changes them. That is the point. To update:
 sudo afl run -f afl.yaml -- git pull
 ```
 
-`afl run` unlocks the protected set, runs the command, and re-locks afterwards
-regardless of how the command ends (its exit code is passed through; a failed
+`afl run` unlocks the protected set **and releases the parent guards**, runs the
+command, then restores both afterwards regardless of how the command ends (its exit code is passed through; a failed
 re-lock turns it into exit 1 with a loud warning). Under `sudo` the command is
 run as the invoking user (`SUDO_UID`/`SUDO_GID`), so `git pull` or an editor does
 not create root-owned files; pass `--as-root` to keep root. The manual form still
@@ -112,17 +261,19 @@ works if you prefer it:
 sudo afl unlock -f afl.yaml && git pull && sudo afl lock -f afl.yaml
 ```
 
-Pre-commit / CI: `afl check -f afl.yaml` needs no root and exits 1 on drift.
-Pair the OS lock with your agent's own deny rules; the flag is the last line of defence, not the first.
+Pre-commit / CI: `afl check -f afl.yaml` needs no root and exits 1 on drift, and
+`afl hook check <path>...` gives the same verdict for individual paths.
 
 ## Platform notes
 
-**Linux** — needs `CAP_LINUX_IMMUTABLE` (root has it; Docker's default cap set
-does **not**: `docker run --cap-add LINUX_IMMUTABLE`). Supported on ext2/3/4,
+**Linux** — needs `CAP_LINUX_IMMUTABLE` for both the immutable flag and the
+append-only parent guard (root has it; Docker's default cap set does **not**:
+`docker run --cap-add LINUX_IMMUTABLE`). Supported on ext2/3/4,
 xfs, btrfs, f2fs, jfs. Not on NFS, SMB, FAT/exFAT, overlayfs, FUSE, or 9p.
 `afl doctor` reads `/proc/self/mountinfo` and tells you before anything is touched.
 
 **macOS** — `strong` = `schg`, root required to set and clear. `user` adds `uchg`.
+Parent guards are `sappnd` (root) or `uappnd` at `--level user`.
 
 **WSL** — WSL2's own filesystem (ext4, e.g. under `~`) works like Linux.
 `/mnt/c` and other DrvFs mounts are 9p and cannot hold the flag; `afl` exits 4
