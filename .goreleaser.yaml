@@ -11,7 +11,19 @@ builds:
     ldflags: ["-s -w -X main.version={{.Version}}"]
 archives:
   - formats: [tar.gz]
-    files: [LICENSE, README.md, afl.yaml.example]
+    files:
+      - LICENSE
+      - README.md
+      - afl.yaml.example
+      # Shipped as files so the cask never has to execute the binary at
+      # install time (an unsigned binary is blocked by Gatekeeper until the
+      # quarantine bit is stripped, which only happens in postflight).
+      - src: internal/completion/afl.bash
+        dst: completions/afl.bash
+      - src: internal/completion/_afl
+        dst: completions/afl.zsh
+      - src: internal/completion/afl.fish
+        dst: completions/afl.fish
 checksum:
   name_template: checksums.txt
 release:
@@ -48,12 +60,19 @@ homebrew_casks:
     homepage: https://github.com/Mineru98/agent-file-lock
     description: Lock files against coding agents with OS-level immutable flags
     license: MIT
-    generate_completions_from_executable:
-      executable: afl
-      args: [completion]
-      base_name: afl
-      shell_parameter_format: arg
-      shells: [bash, zsh, fish]
+    completions:
+      bash: completions/afl.bash
+      zsh: completions/afl.zsh
+      fish: completions/afl.fish
+    # The binary is not signed with an Apple Developer ID, so Gatekeeper
+    # blocks it on first run. Strip the quarantine bit at install time, which
+    # is the standard remedy for unsigned binaries distributed as casks.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"], print_stderr: false).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/afl"]
+          end
     caveats: |
       Strong locks (chflags schg) need root:
         sudo afl lock -f afl.yaml
