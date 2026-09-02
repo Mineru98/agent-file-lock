@@ -156,6 +156,23 @@ make vet           # cross-OS/arch vet (linux amd64/arm64/386, freebsd, openbsd)
 Note: the `afl` prefix is shared with the AFL fuzzer (`afl-fuzz`, `afl-gcc`).
 They do not conflict, but `afl<TAB>` will list both if you have it installed.
 
+## Releasing
+
+Pushing a `v*` tag runs [`.github/workflows/release.yml`](.github/workflows/release.yml),
+which builds the four platform tarballs with goreleaser and publishes them as a
+GitHub release.
+
+The Homebrew cask in [Mineru98/homebrew-tap](https://github.com/Mineru98/homebrew-tap)
+is only pushed automatically when a `HOMEBREW_TAP_TOKEN` repository secret exists
+that can write to that tap. Without it goreleaser skips the cask and the release
+still succeeds; the cask then has to be updated by hand with the checksums from
+the release's `checksums.txt`.
+
+The published binaries are not signed with an Apple Developer ID, so the cask
+strips the Gatekeeper quarantine bit in its `postflight` and ships the shell
+completions as files rather than generating them by running the binary at
+install time (a quarantined binary cannot run yet at that point).
+
 ## License
 
 MIT
