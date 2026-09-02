@@ -107,6 +107,7 @@ Next: lock a file, then register the hook with the agent you use.
 
   sudo afl lock docs/POLICY.md
   afl hook install claude      # or: afl hook install codex
+                               # it asks: this project, or your whole user?
 
 Without the hook the agent only sees "Operation not permitted" and does not
 learn that a person decided the file must not change.

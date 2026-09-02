@@ -43,6 +43,8 @@ complete -c afl -n "__fish_seen_subcommand_from hook" -l format -x -a 'auto json
 complete -c afl -n "__fish_seen_subcommand_from hook" -l strict -d 'Deny unclassifiable commands naming a locked path'
 complete -c afl -n "__fish_seen_subcommand_from hook" -l all -d 'Every known harness'
 complete -c afl -n "__fish_seen_subcommand_from hook" -l global -d 'User-level config'
+complete -c afl -n "__fish_seen_subcommand_from hook" -l user -d 'User-level config (alias for --global)'
+complete -c afl -n "__fish_seen_subcommand_from hook" -l project -d 'Project config, without asking'
 complete -c afl -n "__fish_seen_subcommand_from doctor" -F
 complete -c afl -n "__fish_seen_subcommand_from doctor" -l json -d 'Machine-readable output'
 complete -c afl -n "__fish_seen_subcommand_from completion" -x -a 'bash zsh fish'

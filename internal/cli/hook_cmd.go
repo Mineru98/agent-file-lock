@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
@@ -97,10 +98,15 @@ func (e *env) cmdHookInstall(args []string, install bool) int {
 	fs := flag.NewFlagSet("afl hook install", flag.ContinueOnError)
 	fs.SetOutput(e.stderr)
 	global := fs.Bool("global", false, "write to the user-level config instead of the project one")
+	fs.BoolVar(global, "user", false, "alias for --global")
+	project := fs.Bool("project", false, "write to the project config without asking")
 	all := fs.Bool("all", false, "every known harness")
 	rest, err := parseInterleaved(fs, args)
 	if err != nil {
 		return lock.ExitUsage
+	}
+	if *global && *project {
+		return e.usageErr("--project and --global are mutually exclusive")
 	}
 	var targets []hook.Harness
 	switch {
@@ -117,9 +123,18 @@ func (e *env) cmdHookInstall(args []string, install bool) int {
 			map[bool]string{true: "install", false: "uninstall"}[install], strings.Join(hook.HarnessNames(), ", "))
 	}
 
+	// Neither scope was named: ask, because writing to the wrong one is the
+	// difference between protecting this repository and protecting all of
+	// them. A non-interactive stdin (a script, a pipe, CI) gets the default
+	// instead of a prompt nobody can answer.
+	toUser := *global
+	if !*global && !*project {
+		toUser = e.askScope(targets, install)
+	}
+
 	code := lock.ExitOK
 	for _, h := range targets {
-		path, err := configPath(h, *global)
+		path, err := configPath(h, toUser)
 		if err != nil {
 			fmt.Fprintf(e.stderr, "afl: %v\n", err)
 			code = lock.ExitPartial
@@ -149,6 +164,96 @@ func (e *env) cmdHookInstall(args []string, install bool) int {
 		fmt.Fprintf(e.stdout, "\nThe hook refuses edits to locked paths before the tool runs and tells the\nagent why. It needs no privileges. Verify with: afl hook check <locked path>\n")
 	}
 	return code
+}
+
+// askScope asks where the hook belongs and returns true for the user scope.
+// The answer defaults to the project, so an empty line — or a stdin that is
+// not a terminal — installs into the repository the user is standing in.
+func (e *env) askScope(targets []hook.Harness, install bool) bool {
+	if !isTerminal(e.stdin) {
+		return false
+	}
+	names := make([]string, 0, len(targets))
+	for _, h := range targets {
+		names = append(names, h.Name)
+	}
+	verb := "installed"
+	if !install {
+		verb = "removed"
+	}
+	fmt.Fprintf(e.stdout, "Where should the %s hook be %s?\n", strings.Join(names, " + "), verb)
+	fmt.Fprintf(e.stdout, "  1) this project — %s   (default)\n", scopeExample(targets, false))
+	fmt.Fprintf(e.stdout, "  2) your user    — %s, and every other repository\n", scopeExample(targets, true))
+
+	in := bufio.NewReader(e.stdin)
+	for attempt := 0; attempt < 3; attempt++ {
+		fmt.Fprint(e.stdout, "scope [1/2] (default 1): ")
+		line, err := in.ReadString('\n')
+		if toUser, ok := parseScopeAnswer(line); ok {
+			return toUser
+		}
+		if err != nil { // EOF mid-answer: take the default rather than loop
+			return false
+		}
+		fmt.Fprintf(e.stdout, "afl: answer 1 (this project) or 2 (your user)\n")
+	}
+	fmt.Fprintf(e.stdout, "afl: no answer, using this project\n")
+	return false
+}
+
+// parseScopeAnswer reads one reply to the scope question. An empty line is
+// the default (this project); anything unrecognised is not an answer.
+func parseScopeAnswer(line string) (toUser, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "", "1", "p", "project", "local", "repo":
+		return false, true
+	case "2", "u", "user", "g", "global", "home":
+		return true, true
+	}
+	return false, false
+}
+
+// scopeExample names the file the scope writes to: the exact path when one
+// harness was asked for, and the directory when several were.
+func scopeExample(targets []hook.Harness, global bool) string {
+	if len(targets) == 1 {
+		if p, err := configPath(targets[0], global); err == nil {
+			return prettyHome(p)
+		}
+	}
+	if global {
+		return prettyHome(filepath.Join(homeOr("~"), "…"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return filepath.Join(wd, "…")
+	}
+	return "the config in this directory"
+}
+
+func homeOr(fallback string) string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return fallback
+}
+
+// prettyHome shortens $HOME to ~, which is how people read these paths.
+func prettyHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || !strings.HasPrefix(p, home+string(filepath.Separator)) {
+		return p
+	}
+	return "~" + p[len(home):]
+}
+
+// isTerminal reports whether r is a terminal a question can be asked on.
+func isTerminal(r io.Reader) bool {
+	f, ok := r.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 func configPath(h hook.Harness, global bool) (string, error) {

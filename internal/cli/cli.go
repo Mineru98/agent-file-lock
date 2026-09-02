@@ -106,7 +106,7 @@ Usage:
   afl run    -f <config> -- <cmd...>  unlock, run <cmd>, then always re-lock (e.g. -- git pull)
   afl doctor [--json] [<path>]        diagnose OS, privileges, filesystem support
   afl hook                            PreToolUse guard: refuse an agent's edit and say why
-  afl hook install <harness>|--all    register the hook (claude, codex)
+  afl hook install <harness>|--all    register the hook; asks --project or --user
   afl hook check <path>...            same verdict from any harness or script (exit 2 = refused)
   afl hook print [<harness>]          config snippet, or the generic contract
   afl completion bash|zsh|fish        print shell completion script

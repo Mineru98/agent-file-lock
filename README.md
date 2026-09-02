@@ -98,23 +98,32 @@ looking for a way around. Each agent reads its own config file, so install the
 one you actually use:
 
 ```sh
-afl hook install claude         # writes .claude/settings.json  (Claude Code)
-afl hook install codex          # writes .codex/hooks.json      (Codex)
+afl hook install claude         # Claude Code — .claude/settings.json
+afl hook install codex          # Codex      — .codex/hooks.json
 afl hook install --all          # both
 ```
 
+It asks where the hook belongs before writing anything, because the two
+answers protect different things: the project scope covers this repository,
+the user scope covers every repository you open. Pressing enter takes the
+project.
+
 ```
 $ afl hook install claude
+Where should the claude hook be installed?
+  1) this project — /home/me/project/.claude/settings.json   (default)
+  2) your user    — ~/.claude/settings.json, and every other repository
+scope [1/2] (default 1):
 [claude]       installed (/home/me/project/.claude/settings.json)
 
 The hook refuses edits to locked paths before the tool runs and tells the
 agent why. It needs no privileges. Verify with: afl hook check <locked path>
 ```
 
-Installing needs no root and only merges into whatever the file already
-contains. `--global` writes to `~/.claude/settings.json` (or
-`~/.codex/hooks.json`) instead, which covers every repository at once. Confirm
-that it took effect:
+Pass `--project` or `--user` (`--global` is the same flag) to answer in
+advance, which is also what a script wants — a stdin that is not a terminal is
+never asked and gets the project scope. Installing needs no root and only
+merges into whatever the file already contains. Confirm that it took effect:
 
 ```sh
 afl hook check docs/POLICY.md   # exit 2, and the refusal in plain text
@@ -138,7 +147,7 @@ afl status [-R] <path>... | -f afl.yaml
 afl check  -f afl.yaml                exit 1 if anything drifted (CI / pre-commit; no root)
 afl run    -f afl.yaml -- <cmd...>    unlock, run <cmd>, then always re-lock
 afl hook                              PreToolUse guard for agents (stdin JSON, exit 2 = refused)
-afl hook install claude|codex|--all   register the hook with an agent (no root)
+afl hook install claude|codex|--all   register the hook (asks: --project or --user)
 afl hook check <path>...              the same verdict from any script (no root)
 afl hook print [claude|codex|generic] the snippet, or the contract for anything else
 afl doctor [<path>]                   OS, privileges, filesystem support, WSL detection
@@ -252,8 +261,10 @@ If the change is genuinely required, stop and ask the user to unlock it:
 ```
 
 ```sh
-afl hook install --all          # claude + codex, project-level
-afl hook install claude --global
+afl hook install claude         # asks: this project, or your user?
+afl hook install claude --project
+afl hook install claude --user  # = --global; ~/.claude/settings.json
+afl hook install --all          # claude + codex, one question for both
 afl hook print generic          # the contract for anything else
 afl hook uninstall --all
 ```

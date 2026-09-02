@@ -55,6 +55,7 @@ _afl() {
             '--format[response dialect]:format:(auto json exit-code)' \
             '--strict[deny unclassifiable commands naming a locked path]' \
             '--all[every known harness]' '--global[user-level config]' \
+            '--user[user-level config]' '--project[project config, without asking]' \
             '*:path:_files' ;;
         run) _arguments "${common[@]}" '--as-root[keep root for the command]' '*::command:_normal' ;;
         doctor) _arguments '--json[machine-readable output]' '*:path:_files' ;;

@@ -29,7 +29,7 @@ _afl() {
       return 0 ;;
     install|uninstall)
       if [ "${COMP_WORDS[1]}" = "hook" ]; then
-        COMPREPLY=( $(compgen -W "claude codex --all --global" -- "$cur") )
+        COMPREPLY=( $(compgen -W "claude codex --all --project --user --global" -- "$cur") )
         return 0
       fi ;;
     print)

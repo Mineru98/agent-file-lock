@@ -688,12 +688,58 @@ func TestHookInstallWritesHarnessConfig(t *testing.T) {
 	if e := h.stderr.String(); strings.Contains(e, "generic") && !strings.Contains(e, `"generic"`) {
 		t.Errorf("generic offered as an install target: %s", e)
 	}
+	if c := h.run("hook", "install", "claude", "--project", "--global"); c != lock.ExitUsage {
+		t.Errorf("--project with --global should be a usage error: %d", c)
+	}
 	if c := h.run("hook", "uninstall", "claude"); c != lock.ExitOK {
 		t.Fatalf("uninstall: %d %s", c, h.stderr.String())
 	}
 	b, _ = os.ReadFile(filepath.Join(h.dir, ".claude", "settings.json"))
 	if strings.Contains(string(b), "afl hook") {
 		t.Errorf("hook survived uninstall: %s", b)
+	}
+}
+
+// A piped or redirected stdin cannot answer the scope question, so install
+// has to fall back to the project scope instead of blocking on a prompt.
+func TestHookInstallDefaultsToTheProjectScopeWhenNobodyCanAnswer(t *testing.T) {
+	h := newHarness(t)
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(cwd) })
+	os.Chdir(h.dir)
+	if c := h.runStdin("", "hook", "install", "claude"); c != lock.ExitOK {
+		t.Fatalf("install: %d %s", c, h.stderr.String())
+	}
+	if out := h.stdout.String(); strings.Contains(out, "scope [1/2]") {
+		t.Errorf("asked a question nobody could answer:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(h.dir, ".claude", "settings.json")); err != nil {
+		t.Errorf("project config: %v", err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if c := h.runStdin("", "hook", "install", "claude", "--user"); c != lock.ExitOK {
+		t.Fatalf("install --user: %d %s", c, h.stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, ".claude", "settings.json")); err != nil {
+		t.Errorf("user config: %v", err)
+	}
+}
+
+func TestParseScopeAnswer(t *testing.T) {
+	for in, want := range map[string]bool{
+		"": false, "1": false, "p\n": false, "Project": false,
+		"2": true, "u": true, " USER ": true, "global": true,
+	} {
+		got, ok := parseScopeAnswer(in)
+		if !ok || got != want {
+			t.Errorf("parseScopeAnswer(%q) = %v,%v; want %v,true", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"3", "yes", "~", "both"} {
+		if _, ok := parseScopeAnswer(in); ok {
+			t.Errorf("parseScopeAnswer(%q) should not be an answer", in)
+		}
 	}
 }
 
