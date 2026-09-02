@@ -4,6 +4,8 @@
 
 # agent-file-lock (`afl`)
 
+## Why this exists
+
 Some documents in a repository are not really documents. They are decisions —
 argued over once, signed off, and then deliberately left alone. Our team had a
 few of those. Everyone knew which ones they were, and nobody had touched them
@@ -27,6 +29,8 @@ to come with an explanation. That is the whole idea behind this tool: put the
 file beyond the reach of anything running as you, and then, when something
 reaches for it anyway, answer in a sentence a person would have written
 instead of a number the kernel had to invent.
+
+## What it does
 
 `afl` pins files that a coding agent (or anyone running as your user) must
 never modify. It uses the kernel's **immutable flag** — `chattr +i` on Linux,
