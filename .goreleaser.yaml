@@ -1,0 +1,28 @@
+# Release tooling only; not a runtime dependency.
+version: 2
+project_name: afl
+builds:
+  - main: ./cmd/afl
+    binary: afl
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+archives:
+  - formats: [tar.gz]
+    files: [LICENSE, README.md, afl.yaml.example]
+checksum:
+  name_template: checksums.txt
+brews:
+  - repository:
+      owner: Mineru98
+      name: homebrew-tap
+    homepage: https://github.com/Mineru98/agent-file-lock
+    description: Lock files against coding agents with OS-level immutable flags
+    license: MIT
+    install: |
+      bin.install "afl"
+      generate_completions_from_executable(bin/"afl", "completion")
+    test: |
+      system "#{bin}/afl", "version"

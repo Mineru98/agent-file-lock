@@ -1,0 +1,34 @@
+# afl.yaml — files a coding agent must never modify.
+# Relative paths resolve against the directory containing this file.
+# Apply with:   sudo afl lock -f afl.yaml
+# Verify in CI: afl check -f afl.yaml      (no root needed)
+version: 1
+
+# Default level for every entry:
+#   strong  chattr +i (Linux) / chflags schg (macOS) — needs root to set AND clear
+#   user    chmod a-w (+ chflags uchg on macOS)     — owner can undo; speed bump only
+level: strong
+
+# Lock symlink targets instead of skipping links (default: false).
+follow_symlinks: false
+
+# Globs applied to every recursive entry. `**` matches any depth; a pattern
+# without `/` matches the base name anywhere.
+exclude:
+  - "**/*.tmp"
+  - "**/.DS_Store"
+
+paths:
+  - docs/POLICY.md                  # plain string: one file
+
+  - path: docs/specs                # mapping: options per entry
+    recursive: true                 # every regular file below (required for directories)
+    include_dirs: false             # true also locks directory inodes → no new files can be added
+    exclude:
+      - drafts/**                   # relative to docs/specs
+
+  - path: README.md
+    level: user                     # override the default level
+
+  # - path: config                  # lock only the directory inode (no add/remove/rename inside),
+  #   dir_only: true                # leave the existing files writable
