@@ -50,7 +50,7 @@ func RunWith(args []string, stdout, stderr io.Writer, d Deps) int {
 	}
 	e := &env{stdout: stdout, stderr: stderr, deps: d}
 	if len(args) == 0 {
-		e.usage()
+		e.usageTo(stderr)
 		return lock.ExitUsage
 	}
 	cmd, rest := args[0], args[1:]
@@ -75,12 +75,14 @@ func RunWith(args []string, stdout, stderr io.Writer, d Deps) int {
 		return lock.ExitOK
 	}
 	fmt.Fprintf(stderr, "afl: unknown command %q\n\n", cmd)
-	e.usage()
+	e.usageTo(stderr)
 	return lock.ExitUsage
 }
 
-func (e *env) usage() {
-	fmt.Fprint(e.stdout, `afl — lock files that coding agents must never modify
+func (e *env) usage() { e.usageTo(e.stdout) }
+
+func (e *env) usageTo(w io.Writer) {
+	fmt.Fprint(w, `afl — lock files that coding agents must never modify
 
 Usage:
   afl lock   [flags] <path>...        lock files (strong = immutable, needs root)
@@ -105,6 +107,9 @@ Flags (lock / unlock / status):
       --json            machine-readable output
   -q, --quiet           only print failures
       --elevate         re-exec through sudo when not running as root
+
+Notes: a symlink is never locked (it is reported, and check treats it as drift).
+       unlock after a user-level lock restores u+w only; group/other write bits are not restored.
 
 Exit codes: 0 ok · 1 partial failure / check drift · 2 usage · 3 privileges · 4 unsupported filesystem
 `)
@@ -158,13 +163,18 @@ func (e *env) newFlagSet(name string, c *common) *flag.FlagSet {
 // (`afl lock docs/a.md -R` works like `afl lock -R docs/a.md`).
 func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
 	var positional []string
-	for {
+	for len(args) > 0 {
+		// `--` ends flag parsing for good; everything after it is positional
+		// even if it looks like a flag (filenames such as "-f" or "-R").
+		if args[0] == "--" {
+			return append(positional, args[1:]...), nil
+		}
 		if err := fs.Parse(args); err != nil {
 			return nil, err
 		}
 		rest := fs.Args()
 		i := 0
-		for i < len(rest) && !strings.HasPrefix(rest[i], "-") {
+		for i < len(rest) && (rest[i] == "-" || !strings.HasPrefix(rest[i], "-")) {
 			positional = append(positional, rest[i])
 			i++
 		}
@@ -174,8 +184,12 @@ func parseInterleaved(fs *flag.FlagSet, args []string) ([]string, error) {
 		if rest[i] == "--" {
 			return append(positional, rest[i+1:]...), nil
 		}
+		if len(rest[i:]) == len(args) {
+			return nil, fmt.Errorf("cannot parse argument %q", rest[i])
+		}
 		args = rest[i:]
 	}
+	return positional, nil
 }
 
 func (e *env) usageErr(format string, a ...any) int {

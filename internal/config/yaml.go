@@ -93,13 +93,16 @@ func stripComment(s string) string {
 					i++ // escaped ''
 					continue
 				}
-				if q == '"' && i > 0 && s[i-1] == '\\' {
+				if q == '"' && escaped(s, i) {
 					continue
 				}
 				q = 0
 			}
 		case c == '"' || c == '\'':
-			if i == 0 || s[i-1] == ' ' || s[i-1] == ':' || s[i-1] == '-' {
+			// Only a quote that begins a scalar (line start, after `: ` or
+			// after `- `) opens a quoted string; an apostrophe inside a plain
+			// scalar (rock 'n roll) does not.
+			if i == 0 || (i >= 2 && s[i-1] == ' ' && (s[i-2] == ':' || s[i-2] == '-')) {
 				q = c
 			}
 		case c == '#' && (i == 0 || s[i-1] == ' '):
@@ -122,7 +125,7 @@ func (p *yamlParser) errorf(l yamlLine, format string, a ...any) error {
 // indented exactly `indent`.
 func (p *yamlParser) parseNode(indent int) (any, error) {
 	l := p.lines[p.pos]
-	if strings.HasPrefix(l.text, "- ") || l.text == "-" {
+	if isSeqLine(l.text) {
 		return p.parseSeq(indent)
 	}
 	if isMappingLine(l.text) {
@@ -141,8 +144,10 @@ func (p *yamlParser) parseSeq(indent int) ([]any, error) {
 		if l.indent > indent {
 			return nil, p.errorf(l, "unexpected indentation")
 		}
-		if !(strings.HasPrefix(l.text, "- ") || l.text == "-") {
-			return nil, p.errorf(l, "expected `- item` in sequence")
+		if !isSeqLine(l.text) {
+			// End of a same-indent sequence (`key:` + `- item` at the key's
+			// indentation); the caller decides whether this line is legal.
+			break
 		}
 		rest := strings.TrimSpace(strings.TrimPrefix(l.text, "-"))
 		p.pos++
@@ -171,6 +176,9 @@ func (p *yamlParser) parseSeq(indent int) ([]any, error) {
 			}
 			seq = append(seq, v)
 		default:
+			if isSeqLine(rest) {
+				return nil, p.errorf(l, "nested inline sequences (`- - x`) are not supported")
+			}
 			v, err := p.scalar(l, rest)
 			if err != nil {
 				return nil, err
@@ -180,6 +188,8 @@ func (p *yamlParser) parseSeq(indent int) ([]any, error) {
 	}
 	return seq, nil
 }
+
+func isSeqLine(s string) bool { return s == "-" || strings.HasPrefix(s, "- ") }
 
 func (p *yamlParser) parseMap(indent int) (map[string]any, error) {
 	m := map[string]any{}
@@ -203,6 +213,15 @@ func (p *yamlParser) parseMap(indent int) (map[string]any, error) {
 		}
 		p.pos++
 		if rest == "" {
+			if p.pos < len(p.lines) && p.lines[p.pos].indent == indent && isSeqLine(p.lines[p.pos].text) {
+				// `key:` followed by `- item` at the same indentation (idiomatic YAML)
+				v, err := p.parseSeq(indent)
+				if err != nil {
+					return nil, err
+				}
+				m[key] = v
+				continue
+			}
 			if p.pos >= len(p.lines) || p.lines[p.pos].indent <= indent {
 				m[key] = nil
 				continue
@@ -267,13 +286,22 @@ func closingQuote(s string) int {
 				i++
 				continue
 			}
-			if q == '"' && s[i-1] == '\\' {
+			if q == '"' && escaped(s, i) {
 				continue
 			}
 			return i
 		}
 	}
 	return -1
+}
+
+// escaped reports whether s[i] is preceded by an odd number of backslashes.
+func escaped(s string, i int) bool {
+	n := 0
+	for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+		n++
+	}
+	return n%2 == 1
 }
 
 func (p *yamlParser) scalar(l yamlLine, s string) (any, error) {
@@ -307,7 +335,23 @@ func (p *yamlParser) scalar(l yamlLine, s string) (any, error) {
 	if n, err := strconv.Atoi(s); err == nil {
 		return n, nil
 	}
+	if looksLikeKey(s) {
+		return nil, p.errorf(l, "%q looks like `key:value` without a space after the colon; quote it if it is a plain string", s)
+	}
 	return s, nil
+}
+
+// looksLikeKey flags plain scalars such as `path:docs/a.md` where the user
+// almost certainly forgot the space after the colon.
+func looksLikeKey(s string) bool {
+	i := strings.Index(s, ":")
+	if i <= 0 || i+1 >= len(s) || s[i+1] == ' ' {
+		return false
+	}
+	if strings.HasPrefix(s[i+1:], "//") { // URL-ish: http://…
+		return false
+	}
+	return !strings.ContainsAny(s[:i], " /")
 }
 
 func unquote(s string) (string, error) {

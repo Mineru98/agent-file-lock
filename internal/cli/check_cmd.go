@@ -28,11 +28,19 @@ func (e *env) cmdCheck(args []string) int {
 	if code >= 0 {
 		return code
 	}
-	targets, _, code := e.planAll(entries)
+	targets, skipped, code := e.planAll(entries)
 	if code >= 0 {
 		return code
 	}
 	mm := lock.Check(targets, e.deps.Locker)
+	// Anything the planner had to skip (symlink, unreadable, special file) is
+	// a path the config wanted protected and we cannot vouch for: drift.
+	for _, s := range skipped {
+		mm = append(mm, lock.Mismatch{Path: s.Path, Expected: "locked", Actual: "skipped: " + s.Reason})
+	}
+	if len(targets) == 0 && len(skipped) == 0 {
+		mm = append(mm, lock.Mismatch{Path: c.config, Expected: "at least one target", Actual: "none"})
+	}
 	rep := checkReport{Config: c.config, Checked: len(targets), Mismatches: mm, OK: len(mm) == 0}
 	if rep.Mismatches == nil {
 		rep.Mismatches = []lock.Mismatch{}

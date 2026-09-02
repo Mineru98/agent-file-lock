@@ -108,3 +108,37 @@ func TestParseYAMLEmpty(t *testing.T) {
 		t.Errorf("got %v %v", got, err)
 	}
 }
+
+func TestParseYAMLReviewCases(t *testing.T) {
+	// same-indent sequence under a key (idiomatic)
+	got, err := ParseYAML("version: 1\npaths:\n- docs/a.md\n- path: b.md\n  level: user\nlevel: strong\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{"version": 1, "level": "strong", "paths": []any{"docs/a.md", map[string]any{"path": "b.md", "level": "user"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("same-indent seq: %#v", got)
+	}
+	// apostrophe inside a plain scalar keeps comment stripping working
+	got, err = ParseYAML("paths:\n  - rock 'n roll.md # x\n")
+	if err != nil || got.(map[string]any)["paths"].([]any)[0] != "rock 'n roll.md" {
+		t.Errorf("apostrophe: %#v %v", got, err)
+	}
+	// escaped backslash at the end of a double-quoted string
+	got, err = ParseYAML(`a: "x\\"` + "\n")
+	if err != nil || got.(map[string]any)["a"] != `x\` {
+		t.Errorf("trailing escaped backslash: %#v %v", got, err)
+	}
+	// URL-like plain scalars are fine
+	if _, err := ParseYAML("a: http://x/y\n"); err != nil {
+		t.Errorf("url: %v", err)
+	}
+	for name, src := range map[string]string{
+		"missing space": "paths:\n  - path:docs/a.md\n",
+		"nested seq":    "paths:\n  - - x\n",
+	} {
+		if _, err := ParseYAML(src); err == nil {
+			t.Errorf("%s should be rejected", name)
+		}
+	}
+}

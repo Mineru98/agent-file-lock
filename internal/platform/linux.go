@@ -43,14 +43,6 @@ func setFlags(fd uintptr, attr int32) error {
 	return nil
 }
 
-func openNoFollow(path string) (*os.File, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, mapErr(err)
-	}
-	return f, nil
-}
-
 func (l *linuxLocker) Status(path string) (State, error) {
 	st := State{Path: path, FSType: l.mounts.fsTypeFor(path)}
 	fi, err := os.Lstat(path)
@@ -65,8 +57,9 @@ func (l *linuxLocker) Status(path string) (State, error) {
 	st.Writable = fi.Mode().Perm()&writeBits != 0
 	f, err := openNoFollow(path)
 	if err != nil {
-		// Unreadable files (e.g. 0000 owned by someone else) still have a
-		// mode-based state; report that without the flag bits.
+		// Unreadable (e.g. 0000 owned by someone else): the mode-based state
+		// is still valid, but the inode flags are unknown.
+		st.FlagsUnknown = true
 		return st, nil
 	}
 	defer f.Close()
@@ -82,22 +75,19 @@ func (l *linuxLocker) Status(path string) (State, error) {
 }
 
 func (l *linuxLocker) Lock(path string, lvl Level) error {
-	fi, err := os.Lstat(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return ErrSymlink
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
 	}
 	switch lvl {
 	case LevelUser:
-		return removeWriteBits(path, fi.Mode())
+		return fchmodRemoveWrite(f, fi.Mode())
 	case LevelStrong:
-		f, err := openNoFollow(path)
-		if err != nil {
-			return err
-		}
-		defer f.Close()
 		attr, err := getFlags(f.Fd())
 		if err != nil {
 			return err
@@ -112,14 +102,12 @@ func (l *linuxLocker) Lock(path string, lvl Level) error {
 }
 
 func (l *linuxLocker) Unlock(path string) error {
-	fi, err := os.Lstat(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return ErrSymlink
-	}
-	f, err := openNoFollow(path)
+	defer f.Close()
+	fi, err := f.Stat()
 	if err != nil {
 		return err
 	}
@@ -127,15 +115,12 @@ func (l *linuxLocker) Unlock(path string) error {
 	switch {
 	case err == nil && attr&fsImmutableFl != 0:
 		if err := setFlags(f.Fd(), attr&^fsImmutableFl); err != nil {
-			f.Close()
 			return err
 		}
 	case err != nil && !isUnsupportedErr(err):
-		f.Close()
 		return err
 	}
-	f.Close()
-	return restoreOwnerWrite(path, fi.Mode())
+	return fchmodRestoreOwnerWrite(f, fi.Mode())
 }
 
 // Filesystems known to implement FS_IOC_SETFLAGS with FS_IMMUTABLE_FL.

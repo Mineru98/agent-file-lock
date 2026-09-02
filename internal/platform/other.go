@@ -3,7 +3,9 @@
 package platform
 
 import (
+	"errors"
 	"os"
+	"runtime"
 	"syscall"
 )
 
@@ -30,39 +32,48 @@ func (userLocker) Status(path string) (State, error) {
 }
 
 func (userLocker) Lock(path string, lvl Level) error {
-	fi, err := os.Lstat(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return ErrSymlink
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
 	}
 	if lvl == LevelStrong {
-		return ErrUnsupportedFS
+		return joinErr(ErrUnsupportedFS, errors.New(noStrongReason))
 	}
-	return removeWriteBits(path, fi.Mode())
+	return fchmodRemoveWrite(f, fi.Mode())
 }
 
 func (userLocker) Unlock(path string) error {
-	fi, err := os.Lstat(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return ErrSymlink
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
 	}
-	return restoreOwnerWrite(path, fi.Mode())
+	return fchmodRestoreOwnerWrite(f, fi.Mode())
 }
+
+var noStrongReason = func() string {
+	if runtime.GOOS == "linux" {
+		return "afl has no FS_IOC_SETFLAGS encoding for linux/" + runtime.GOARCH + " yet; only --level user is available"
+	}
+	return "this platform has no immutable flag; only --level user is available"
+}()
 
 func (userLocker) Supports(path string, lvl Level) (bool, string) {
 	if lvl == LevelStrong {
-		return false, "this platform has no immutable flag; only --level user is available"
+		return false, noStrongReason
 	}
 	return true, ""
 }
 
-func strongPrivilege() (bool, string) {
-	return false, "this platform has no immutable flag; only --level user is available"
-}
+func strongPrivilege() (bool, string) { return false, noStrongReason }
 
 func IsWSL() bool { return false }

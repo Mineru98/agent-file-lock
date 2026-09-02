@@ -56,6 +56,9 @@ Rules worth knowing:
 - Symlinks are skipped unless `--follow-symlinks`.
 - Every change is re-read and verified; a filesystem that silently ignores the flag is reported as a failure.
 - Already-locked / already-unlocked targets are no-ops (exit 0).
+- If every requested entry had to be skipped (for example a protected file was replaced by a symlink), `lock` exits 1 and `check` reports drift instead of a hollow success.
+- `unlock` after a `user`-level lock restores `u+w` only; group/other write bits removed by the lock are not restored (afl keeps no record of the original mode).
+- All mutations go through a file descriptor opened with `O_NOFOLLOW`, so the final path component cannot be swapped for a symlink between inspection and change. Parent directories are still resolved by name; keep protected trees inside directories the agent cannot rename.
 
 Exit codes: `0` ok · `1` partial failure or `check` drift · `2` usage · `3` insufficient privileges · `4` unsupported filesystem.
 

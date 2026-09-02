@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Mineru98/agent-file-lock/internal/lock"
 	"github.com/Mineru98/agent-file-lock/internal/platform"
@@ -289,5 +290,43 @@ func TestCompletionAndVersion(t *testing.T) {
 	}
 	if c := h.run("doctor", "--json", "@docs"); c != lock.ExitOK || !strings.Contains(h.stdout.String(), `"fstype": "fakefs"`) {
 		t.Errorf("doctor json: %d %s", c, h.stdout.String())
+	}
+}
+
+func TestReviewRegressions(t *testing.T) {
+	h := newHarness(t)
+	h.root = true
+
+	// bare "-" must not hang and is treated as a (nonexistent) path
+	done := make(chan int, 1)
+	go func() { done <- h.run("status", "-") }()
+	select {
+	case c := <-done:
+		if c == lock.ExitOK {
+			t.Errorf("status - should fail on a missing file, got %d", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("parseInterleaved hung on \"-\"")
+	}
+
+	// leading "--" protects flag-like filenames
+	os.WriteFile(h.p("-R"), []byte("x"), 0o644)
+	if c := h.run("status", "--", "@-R"); c != lock.ExitOK || !strings.Contains(h.stdout.String(), "-R") {
+		t.Errorf("-- before flag-like path: %d %q %q", c, h.stdout.String(), h.stderr.String())
+	}
+
+	// check fails closed when a protected file was replaced by a symlink
+	os.Remove(h.p("docs/POLICY.md"))
+	os.Symlink(h.p("README.md"), h.p("docs/POLICY.md"))
+	if c := h.run("check", "-f", "@afl.yaml"); c != lock.ExitPartial || !strings.Contains(h.stderr.String(), "symlink") {
+		t.Errorf("check with symlinked target: %d %q", c, h.stderr.String())
+	}
+	// lock with nothing lockable is not a success
+	if c := h.run("lock", "@docs/POLICY.md"); c != lock.ExitPartial {
+		t.Errorf("lock of only-symlink entry: %d %q", c, h.stderr.String())
+	}
+	// unknown command prints usage to stderr, nothing on stdout
+	if c := h.run("nope"); c != lock.ExitUsage || h.stdout.Len() != 0 {
+		t.Errorf("unknown command stdout=%q", h.stdout.String())
 	}
 }

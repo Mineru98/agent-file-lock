@@ -60,7 +60,8 @@ func (e *env) collectEntries(c *common, paths []string, defaultLevel platform.Le
 }
 
 // planAll expands entries into targets, aggregating skips. The first plan
-// error aborts with a usage/partial exit code.
+// error aborts with a usage/partial exit code. The combined list is sorted
+// post-order once so overlapping roots cannot lock a parent before a child.
 func (e *env) planAll(entries []config.Entry) ([]lock.Target, []lock.Skipped, int) {
 	var targets []lock.Target
 	var skipped []lock.Skipped
@@ -73,5 +74,20 @@ func (e *env) planAll(entries []config.Entry) ([]lock.Target, []lock.Skipped, in
 		targets = append(targets, ts...)
 		skipped = append(skipped, sk...)
 	}
+	lock.SortPostOrder(targets)
 	return targets, skipped, -1
+}
+
+// nothingToDo reports (and returns ExitPartial) when entries were given but
+// every one of them was skipped, so a "0 changed, 0 failed" run can never
+// masquerade as success.
+func (e *env) nothingToDo(entries []config.Entry, targets []lock.Target, skipped []lock.Skipped) bool {
+	if len(entries) == 0 || len(targets) > 0 {
+		return false
+	}
+	fmt.Fprintf(e.stderr, "afl: no lockable targets (%d entries, all skipped)\n", len(entries))
+	for _, s := range skipped {
+		fmt.Fprintf(e.stderr, "  %s: %s\n", s.Path, s.Reason)
+	}
+	return true
 }

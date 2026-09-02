@@ -16,16 +16,11 @@ func isUnsupported(errno syscall.Errno) bool {
 	return errno == syscall.ENOTSUP || errno == syscall.EOPNOTSUPP || errno == syscall.ENOTTY
 }
 
-func lstatFlags(path string) (os.FileInfo, uint32, error) {
-	fi, err := os.Lstat(path)
-	if err != nil {
-		return nil, 0, err
+func flagsOf(fi os.FileInfo) uint32 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return uint32(st.Flags)
 	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return fi, 0, fmt.Errorf("unexpected stat type for %s", path)
-	}
-	return fi, uint32(st.Flags), nil
+	return 0
 }
 
 func fsTypeOf(path string) string {
@@ -45,7 +40,7 @@ func fsTypeOf(path string) string {
 
 func (bsdLocker) Status(path string) (State, error) {
 	st := State{Path: path}
-	fi, flags, err := lstatFlags(path)
+	fi, err := os.Lstat(path)
 	if err != nil {
 		return st, err
 	}
@@ -54,6 +49,7 @@ func (bsdLocker) Status(path string) (State, error) {
 		st.IsSymlink = true
 		return st, nil
 	}
+	flags := flagsOf(fi)
 	st.IsDir = fi.IsDir()
 	st.Writable = fi.Mode().Perm()&writeBits != 0
 	st.Immutable = flags&sfImmutable != 0
@@ -62,13 +58,17 @@ func (bsdLocker) Status(path string) (State, error) {
 }
 
 func (bsdLocker) Lock(path string, lvl Level) error {
-	fi, flags, err := lstatFlags(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return ErrSymlink
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
 	}
+	flags := flagsOf(fi)
+	fd := int(f.Fd())
 	switch lvl {
 	case LevelUser:
 		if flags&(ufImmutable|sfImmutable) != 0 {
@@ -76,35 +76,38 @@ func (bsdLocker) Lock(path string, lvl Level) error {
 			// the file is already at least user-locked.
 			return nil
 		}
-		if err := removeWriteBits(path, fi.Mode()); err != nil {
+		if err := fchmodRemoveWrite(f, fi.Mode()); err != nil {
 			return err
 		}
-		return mapErr(syscall.Chflags(path, int(flags|ufImmutable)))
+		return mapErr(syscall.Fchflags(fd, int(flags|ufImmutable)))
 	case LevelStrong:
 		if flags&sfImmutable != 0 {
 			return nil
 		}
-		return mapErr(syscall.Chflags(path, int(flags|sfImmutable)))
+		return mapErr(syscall.Fchflags(fd, int(flags|sfImmutable)))
 	default:
 		return fmt.Errorf("unknown level %v", lvl)
 	}
 }
 
 func (bsdLocker) Unlock(path string) error {
-	fi, flags, err := lstatFlags(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return err
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return ErrSymlink
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
 	}
+	flags := flagsOf(fi)
 	const both = sfImmutable | ufImmutable
 	if flags&both != 0 {
-		if err := mapErr(syscall.Chflags(path, int(flags&^both))); err != nil {
+		if err := mapErr(syscall.Fchflags(int(f.Fd()), int(flags&^both))); err != nil {
 			return err
 		}
 	}
-	return restoreOwnerWrite(path, fi.Mode())
+	return fchmodRestoreOwnerWrite(f, fi.Mode())
 }
 
 func (bsdLocker) Supports(path string, lvl Level) (bool, string) {

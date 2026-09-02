@@ -23,26 +23,32 @@ func (e *env) cmdLock(args []string, action lock.Action) int {
 		return code
 	}
 
-	// Pre-flight 1: filesystem support (cheap mount-table lookup per root).
+	targets, skipped, code := e.planAll(entries)
+	if code >= 0 {
+		return code
+	}
+	if e.nothingToDo(entries, targets, skipped) {
+		return lock.ExitPartial
+	}
+
+	// Pre-flight 1: filesystem support, checked on every target (cheap
+	// mount-table lookup) so a tree spanning mounts is caught up front.
 	if action == lock.ActionLock {
 		var unsupported []string
-		for _, en := range entries {
-			if en.Opts.Level != platform.LevelStrong {
+		seen := map[string]bool{}
+		for _, t := range targets {
+			if t.Level != platform.LevelStrong {
 				continue
 			}
-			if ok, why := e.deps.Locker.Supports(en.Path, platform.LevelStrong); !ok {
-				unsupported = append(unsupported, fmt.Sprintf("  %s: %s", en.Path, why))
+			if ok, why := e.deps.Locker.Supports(t.Path, platform.LevelStrong); !ok && !seen[why] {
+				seen[why] = true
+				unsupported = append(unsupported, fmt.Sprintf("  %s: %s", t.Path, why))
 			}
 		}
 		if len(unsupported) > 0 {
 			fmt.Fprintf(e.stderr, "afl: strong locks are not possible on these paths:\n%s\n", strings.Join(unsupported, "\n"))
 			return lock.ExitUnsupported
 		}
-	}
-
-	targets, skipped, code := e.planAll(entries)
-	if code >= 0 {
-		return code
 	}
 	if action == lock.ActionUnlock {
 		lock.Reverse(targets) // pre-order: parent directories first
@@ -87,7 +93,7 @@ func (e *env) needsStrongPrivilege(action lock.Action, entries []config.Entry, t
 	}
 	for _, t := range targets {
 		st, err := e.deps.Locker.Status(t.Path)
-		if err == nil && st.Immutable {
+		if err == nil && (st.Immutable || st.FlagsUnknown) {
 			return true
 		}
 	}

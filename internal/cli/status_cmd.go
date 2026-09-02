@@ -56,6 +56,8 @@ func stateName(st platform.State) string {
 		return "strong"
 	case st.UserImmutable || !st.Writable:
 		return "user"
+	case st.FlagsUnknown:
+		return "unknown"
 	}
 	return "unlocked"
 }

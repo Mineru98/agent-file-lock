@@ -27,7 +27,7 @@ _afl() {
 
   case "$cur" in
     -*)
-      COMPREPLY=( $(compgen -W "-f --config -R --recursive -n --dry-run --level --include-dirs --dir-only --exclude --follow-symlinks --fail-fast --json -q --quiet --elevate -h --help" -- "$cur") )
+      COMPREPLY=( $(compgen -W "-f --config -R --recursive -n --dry-run --level --include-dirs --dir-only --exclude --follow-symlinks --fail-fast --json -q --quiet --elevate -h --help -v --version" -- "$cur") )
       return 0 ;;
   esac
   # fall through to default path completion (-o default)

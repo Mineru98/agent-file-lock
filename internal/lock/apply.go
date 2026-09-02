@@ -213,10 +213,15 @@ func Check(targets []Target, l platform.Locker) []Mismatch {
 			continue
 		}
 		if st.IsSymlink {
+			out = append(out, Mismatch{Path: t.Path, Expected: t.Level.String(), Actual: "symlink"})
 			continue
 		}
 		if !st.LockedAt(t.Level) {
-			out = append(out, Mismatch{Path: t.Path, Expected: t.Level.String(), Actual: levelName(st)})
+			actual := levelName(st)
+			if st.FlagsUnknown {
+				actual = "unknown (cannot read inode flags; re-run with sudo)"
+			}
+			out = append(out, Mismatch{Path: t.Path, Expected: t.Level.String(), Actual: actual})
 		}
 	}
 	return out

@@ -48,9 +48,10 @@ func ParseLevel(s string) (Level, error) {
 // State is the observed lock state of a single path.
 type State struct {
 	Path          string `json:"path"`
-	Immutable     bool   `json:"immutable"`      // strong flag present (chattr +i / schg)
-	UserImmutable bool   `json:"user_immutable"` // BSD/macOS uchg; always false on Linux
-	Writable      bool   `json:"writable"`       // any write bit set in the mode
+	Immutable     bool   `json:"immutable"`               // strong flag present (chattr +i / schg)
+	UserImmutable bool   `json:"user_immutable"`          // BSD/macOS uchg; always false on Linux
+	Writable      bool   `json:"writable"`                // any write bit set in the mode
+	FlagsUnknown  bool   `json:"flags_unknown,omitempty"` // inode flags could not be read (e.g. unreadable file, non-root)
 	IsDir         bool   `json:"is_dir"`
 	IsSymlink     bool   `json:"is_symlink"`
 	FSType        string `json:"fstype,omitempty"`

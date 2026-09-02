@@ -128,7 +128,7 @@ func Plan(root string, opts PlanOptions) ([]Target, []Skipped, error) {
 	if walkErr != nil {
 		return nil, nil, walkErr
 	}
-	sortPostOrder(targets)
+	SortPostOrder(targets)
 	return targets, skipped, nil
 }
 
@@ -141,10 +141,10 @@ func excluded(rel string, patterns []string) bool {
 	return false
 }
 
-// sortPostOrder orders targets so every directory comes after everything
+// SortPostOrder orders targets so every directory comes after everything
 // beneath it. WalkDir yields pre-order; a stable sort by descending depth with
 // directories after files at equal depth gives the required post-order.
-func sortPostOrder(ts []Target) {
+func SortPostOrder(ts []Target) {
 	depth := func(p string) int { return len(splitClean(filepath.ToSlash(p))) }
 	sort.SliceStable(ts, func(i, j int) bool {
 		di, dj := depth(ts[i].Path), depth(ts[j].Path)

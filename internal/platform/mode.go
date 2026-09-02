@@ -9,20 +9,36 @@ import (
 
 const writeBits = 0o222
 
-// removeWriteBits performs chmod a-w.
-func removeWriteBits(path string, mode fs.FileMode) error {
+// openNoFollow opens path for inspection/mutation without following a final
+// symlink, so every later operation acts on the inode we inspected (no
+// lstat→chmod race on the last component).
+func openNoFollow(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		var errno syscall.Errno
+		if errors.As(err, &errno) && (errno == syscall.ELOOP || errno == syscall.EMLINK) {
+			return nil, ErrSymlink
+		}
+		return nil, mapErr(err)
+	}
+	return f, nil
+}
+
+// fchmodRemoveWrite performs chmod a-w on an open file.
+func fchmodRemoveWrite(f *os.File, mode fs.FileMode) error {
 	if mode.Perm()&writeBits == 0 {
 		return nil
 	}
-	return mapErr(os.Chmod(path, mode.Perm()&^writeBits))
+	return mapErr(syscall.Fchmod(int(f.Fd()), uint32(mode.Perm()&^writeBits)))
 }
 
-// restoreOwnerWrite performs chmod u+w.
-func restoreOwnerWrite(path string, mode fs.FileMode) error {
+// fchmodRestoreOwnerWrite performs chmod u+w on an open file. Group/other
+// write bits removed by the lock are not restored (we keep no record).
+func fchmodRestoreOwnerWrite(f *os.File, mode fs.FileMode) error {
 	if mode.Perm()&0o200 != 0 {
 		return nil
 	}
-	return mapErr(os.Chmod(path, mode.Perm()|0o200))
+	return mapErr(syscall.Fchmod(int(f.Fd()), uint32(mode.Perm()|0o200)))
 }
 
 // mapErr converts raw errno values into the package sentinels, keeping the
