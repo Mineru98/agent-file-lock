@@ -142,6 +142,17 @@ func (h *harness) run(args ...string) int {
 
 func (h *harness) p(rel string) string { return filepath.Join(h.dir, rel) }
 
+// resolved is h.dir with symlinks evaluated, which is what a command that
+// starts from the working directory will see.
+func (h *harness) resolved(t *testing.T) string {
+	t.Helper()
+	p, err := filepath.EvalSymlinks(h.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func TestUsageErrors(t *testing.T) {
 	h := newHarness(t)
 	if c := h.run(); c != lock.ExitUsage {
@@ -532,5 +543,58 @@ func TestUnlockKeepsGuardsWhileSiblingsAreLocked(t *testing.T) {
 	}
 	if h.fake.append_[h.p("docs")] || h.fake.append_[h.p("docs/specs")] {
 		t.Errorf("guards should be released: %v", h.fake.append_)
+	}
+}
+
+// --- bare status scan -------------------------------------------------------
+
+func TestBareStatusScansTheTree(t *testing.T) {
+	h := newHarness(t)
+	// A bare scan resolves the working directory, and on macOS t.TempDir()
+	// lives behind the /var -> /private/var symlink.
+	real := h.resolved(t)
+	h.fake.strong[filepath.Join(real, "docs/POLICY.md")] = true
+	h.fake.append_[filepath.Join(real, "docs")] = true
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(cwd) })
+	if err := os.Chdir(h.dir); err != nil {
+		t.Fatal(err)
+	}
+	if c := h.run("status"); c != lock.ExitOK {
+		t.Fatalf("status: %d %s", c, h.stderr.String())
+	}
+	out := h.stdout.String()
+	if !strings.Contains(out, filepath.Join("docs", "POLICY.md")) {
+		t.Errorf("locked file not listed: %s", out)
+	}
+	if !strings.Contains(out, "guard") {
+		t.Errorf("guarded directory not listed: %s", out)
+	}
+	if !strings.Contains(out, "1 locked") {
+		t.Errorf("no summary: %s", out)
+	}
+	// and it says so plainly when there is nothing to report
+	h.fake.strong = map[string]bool{}
+	h.fake.append_ = map[string]bool{}
+	if c := h.run("status"); c != lock.ExitOK || !strings.Contains(h.stdout.String(), "nothing locked") {
+		t.Errorf("empty scan: %d %s", c, h.stdout.String())
+	}
+}
+
+func TestBareStatusJSON(t *testing.T) {
+	h := newHarness(t)
+	h.fake.strong[filepath.Join(h.resolved(t), "README.md")] = true
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(cwd) })
+	os.Chdir(h.dir)
+	if c := h.run("status", "--json"); c != lock.ExitOK {
+		t.Fatalf("status --json: %d %s", c, h.stderr.String())
+	}
+	var res lock.ScanResult
+	if err := json.Unmarshal(h.stdout.Bytes(), &res); err != nil {
+		t.Fatalf("json: %v (%s)", err, h.stdout.String())
+	}
+	if len(res.Locked) != 1 || res.Locked[0].Rel != "README.md" {
+		t.Errorf("scan result: %+v", res)
 	}
 }

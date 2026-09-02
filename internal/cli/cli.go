@@ -93,7 +93,7 @@ Usage:
   afl lock   [flags] <path>...        lock files (strong = immutable, needs root)
   afl lock   [flags] -f <config>      lock everything listed in afl.yaml / afl.json
   afl unlock [flags] <path>... | -f <config>
-  afl status [flags] <path>... | -f <config>
+  afl status [flags] [<path>...]      no path: scan the current tree for locked files
   afl check  -f <config>              exit 1 if any protected path is not locked (CI / pre-commit)
   afl run    -f <config> -- <cmd...>  unlock, run <cmd>, then always re-lock (e.g. -- git pull)
   afl doctor [--json] [<path>]        diagnose OS, privileges, filesystem support
@@ -120,6 +120,10 @@ Flags (lock / unlock / status):
       --elevate         re-exec through sudo when not running as root
       --as-root         run: keep root for the command (default: drop to SUDO_UID/SUDO_GID)
 
+Flags (status):
+  -a, --all             do not skip .git, node_modules and other noise directories
+      --depth <n>       limit how deep a bare scan walks
+
 Notes: a symlink is never locked (it is reported, and check treats it as drift).
        unlock after a user-level lock restores u+w only; group/other write bits are not restored.
        an append-only parent still accepts new files; it refuses deletes and renames of the entries it already has.
@@ -145,6 +149,8 @@ type common struct {
 	guardParents   bool
 	noGuard        bool
 	guardRoot      string
+	all            bool
+	depth          int
 }
 
 type multiFlag []string
@@ -175,6 +181,9 @@ func (e *env) newFlagSet(name string, c *common) *flag.FlagSet {
 	fs.BoolVar(&c.guardParents, "guard-parents", true, "guard ancestor directories")
 	fs.BoolVar(&c.noGuard, "no-guard-parents", false, "do not guard ancestor directories")
 	fs.StringVar(&c.guardRoot, "guard-root", "", "how far up the guard walks")
+	fs.BoolVar(&c.all, "a", false, "scan everything")
+	fs.BoolVar(&c.all, "all", false, "scan everything")
+	fs.IntVar(&c.depth, "depth", 0, "max scan depth")
 	return fs
 }
 
