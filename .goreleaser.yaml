@@ -42,7 +42,9 @@ homebrew_casks:
       owner: Mineru98
       name: homebrew-tap
       branch: main
-      token: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}{{ .Env.HOMEBREW_TAP_TOKEN }}{{ end }}'
+      # goreleaser requires a bare {{ .Env.VAR }} here, so the workflow must
+      # always define HOMEBREW_TAP_TOKEN (empty is fine — skip_upload handles it).
+      token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
     homepage: https://github.com/Mineru98/agent-file-lock
     description: Lock files against coding agents with OS-level immutable flags
     license: MIT

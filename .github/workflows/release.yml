@@ -24,6 +24,7 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Pushing the formula to Mineru98/homebrew-tap needs a token that can
-          # write to that repo; without it goreleaser skips the brew step.
+          # Pushing the cask to Mineru98/homebrew-tap needs a token that can
+          # write to that repo. If the secret is absent this is the empty
+          # string and goreleaser skips the cask instead of failing.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
